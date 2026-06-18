@@ -258,7 +258,7 @@ export default function MapApp() {
       />
 
       {/* لوحة التحكم */}
-      <div className="absolute inset-x-2 top-2 z-10 flex max-h-[calc(100dvh-1rem)] flex-col gap-3 overflow-auto rounded-2xl bg-white/95 p-4 shadow-xl ring-1 ring-black/5 backdrop-blur sm:inset-x-auto sm:right-4 sm:top-4 sm:w-[340px]">
+      <div className="absolute inset-x-2 top-2 z-10 flex max-h-[50dvh] flex-col gap-3 overflow-auto rounded-2xl bg-white/95 p-4 shadow-xl ring-1 ring-black/5 backdrop-blur sm:inset-x-auto sm:right-4 sm:top-4 sm:max-h-[calc(100dvh-2rem)] sm:w-[340px]">
         {/* الرأس */}
         <div className="flex items-start justify-between gap-2">
           <div>
@@ -272,9 +272,23 @@ export default function MapApp() {
           <button
             onClick={() => setCollapsed((c) => !c)}
             aria-label={collapsed ? "عرض الخيارات" : "إخفاء الخيارات"}
-            className="shrink-0 rounded-lg px-2 py-1 text-slate-500 hover:bg-slate-100"
+            aria-expanded={!collapsed}
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-slate-300 bg-white text-slate-700 shadow-sm transition hover:bg-slate-100 active:scale-95"
           >
-            {collapsed ? "▾" : "▴"}
+            <svg
+              viewBox="0 0 24 24"
+              className={`h-5 w-5 transition-transform ${
+                collapsed ? "" : "rotate-180"
+              }`}
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="m6 9 6 6 6-6" />
+            </svg>
           </button>
         </div>
 
@@ -457,10 +471,24 @@ export default function MapApp() {
             <div>
               <button
                 onClick={() => setShowList((v) => !v)}
-                className="flex w-full items-center justify-between text-xs font-medium text-slate-500"
+                aria-expanded={showList}
+                className="flex w-full items-center justify-between rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
               >
                 <span>قائمة المعالم ({visiblePlaces.length})</span>
-                <span>{showList ? "▴" : "▾"}</span>
+                <svg
+                  viewBox="0 0 24 24"
+                  className={`h-5 w-5 text-slate-500 transition-transform ${
+                    showList ? "rotate-180" : ""
+                  }`}
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="m6 9 6 6 6-6" />
+                </svg>
               </button>
               {showList && (
                 <ul className="mt-1.5 max-h-48 space-y-0.5 overflow-auto">
