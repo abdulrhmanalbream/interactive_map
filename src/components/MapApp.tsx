@@ -51,6 +51,21 @@ function formatDuration(s: number) {
   return min < 60 ? `${min} دقيقة` : `${Math.floor(min / 60)} س ${min % 60} د`;
 }
 
+/** يطلب موقع المستخدم ويعيد الإحداثيات أو null عند الرفض/الفشل. */
+function getCurrentLocation(): Promise<LngLat | null> {
+  return new Promise((resolve) => {
+    if (typeof navigator === "undefined" || !navigator.geolocation) {
+      resolve(null);
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => resolve({ lng: pos.coords.longitude, lat: pos.coords.latitude }),
+      () => resolve(null),
+      { enableHighAccuracy: true, timeout: 8000 },
+    );
+  });
+}
+
 const ALL_ON: Record<PlaceCategory, boolean> = {
   mosque: true,
   landmark: true,
@@ -175,30 +190,38 @@ export default function MapApp() {
     });
   }
 
-  function locateMe() {
-    if (!navigator.geolocation) {
-      setStatus("المتصفح لا يدعم تحديد الموقع.");
-      return;
-    }
+  async function locateMe() {
     setStatus("جارٍ تحديد موقعك…");
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        const o = { lng: pos.coords.longitude, lat: pos.coords.latitude };
-        setOrigin(o);
-        setFocus({ ...o, zoom: 14 });
-        setStatus("تم تحديد موقعك.");
-      },
-      () => setStatus("تعذّر تحديد الموقع (تأكد من السماح بالإذن)."),
-      { enableHighAccuracy: true, timeout: 8000 },
-    );
+    const loc = await getCurrentLocation();
+    if (loc) {
+      setOrigin(loc);
+      setFocus({ ...loc, zoom: 14 });
+      setStatus("تم تحديد موقعك.");
+    } else {
+      setStatus("تعذّر تحديد الموقع (تأكد من السماح بالإذن).");
+    }
   }
 
   async function getDirections() {
     if (!selected) return;
-    // نقطة البداية: موقع المستخدم إن توفّر، وإلا مركز المدينة المنورة
-    const start = origin ?? { lng: MEDINA_CENTER[0], lat: MEDINA_CENTER[1] };
     setRouting(true);
     setStatus(null);
+
+    // نقطة البداية: موقع المستخدم — نحدّده تلقائيًا إن لم يكن محددًا
+    let start = origin;
+    if (!start) {
+      setStatus("جارٍ تحديد موقعك…");
+      const loc = await getCurrentLocation();
+      if (loc) {
+        start = loc;
+        setOrigin(loc);
+        setStatus(null);
+      } else {
+        start = { lng: MEDINA_CENTER[0], lat: MEDINA_CENTER[1] };
+        setStatus("تعذّر تحديد موقعك — المسار من مركز المدينة (اسمح بالإذن لمسار أدق).");
+      }
+    }
+
     try {
       const res = await fetch(
         `/api/directions?from=${start.lng},${start.lat}&to=${selected.lng},${selected.lat}`,
@@ -207,7 +230,6 @@ export default function MapApp() {
       if (data.geometry) {
         setRouteGeometry(data.geometry);
         setRouteInfo({ distance: data.distance, duration: data.duration });
-        if (!origin) setOrigin(start);
       } else {
         setStatus("تعذّر حساب المسار.");
       }
