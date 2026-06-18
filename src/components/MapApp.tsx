@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
+import type { StyleSpecification } from "maplibre-gl";
 import {
   CATEGORY_COLORS,
   CATEGORY_LABELS,
@@ -79,7 +80,37 @@ export default function MapApp() {
   const [searching, setSearching] = useState(false);
 
   const [filters, setFilters] = useState<Record<PlaceCategory, boolean>>(ALL_ON);
-  const [styleUrl, setStyleUrl] = useState<string>(MAP_STYLES[0].url);
+  const [styleId, setStyleId] = useState<string>(MAP_STYLES[0].id);
+  const [resolvedStyle, setResolvedStyle] = useState<
+    string | StyleSpecification
+  >(MAP_STYLES[0].style ?? "");
+  const [styleLoading, setStyleLoading] = useState(false);
+  const styleReqRef = useRef<string>(MAP_STYLES[0].id);
+
+  // اختيار النمط: الجاهز فورًا، والهجين عبر جلب غير متزامن (مع حماية من السباق)
+  function chooseStyle(id: string) {
+    setStyleId(id);
+    styleReqRef.current = id;
+    const def = MAP_STYLES.find((s) => s.id === id);
+    if (!def) return;
+    if (def.style) {
+      setResolvedStyle(def.style);
+      return;
+    }
+    if (!def.build) return;
+    setStyleLoading(true);
+    def
+      .build()
+      .then((s) => {
+        if (styleReqRef.current === id) setResolvedStyle(s);
+      })
+      .catch(() => {
+        /* أبقِ النمط الحالي عند فشل الجلب */
+      })
+      .finally(() => {
+        if (styleReqRef.current === id) setStyleLoading(false);
+      });
+  }
   const [collapsed, setCollapsed] = useState(false);
   const [showList, setShowList] = useState(false);
 
@@ -248,7 +279,7 @@ export default function MapApp() {
     <div className="relative h-full w-full">
       <MapView
         places={visiblePlaces}
-        styleUrl={styleUrl}
+        mapStyle={resolvedStyle}
         focus={focus}
         searchMarker={searchMarker}
         origin={origin}
@@ -449,14 +480,17 @@ export default function MapApp() {
             <div>
               <span className="mb-1.5 block text-xs font-medium text-slate-500">
                 نمط الخريطة
+                {styleLoading && (
+                  <span className="text-slate-400"> · جارٍ التحميل…</span>
+                )}
               </span>
-              <div className="flex gap-1 rounded-lg bg-slate-100 p-1">
+              <div className="grid grid-cols-2 gap-1 rounded-lg bg-slate-100 p-1">
                 {MAP_STYLES.map((s) => (
                   <button
                     key={s.id}
-                    onClick={() => setStyleUrl(s.url)}
-                    className={`flex-1 rounded-md px-2 py-1 text-xs transition ${
-                      styleUrl === s.url
+                    onClick={() => chooseStyle(s.id)}
+                    className={`rounded-md px-2 py-1.5 text-xs transition ${
+                      styleId === s.id
                         ? "bg-white font-medium text-slate-800 shadow-sm"
                         : "text-slate-500 hover:text-slate-700"
                     }`}

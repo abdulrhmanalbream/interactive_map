@@ -1,12 +1,18 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import maplibregl from "maplibre-gl";
-import { applyArabicLabels } from "@/lib/mapStyle";
+import { applyArabicLabels, MAP_STYLES } from "@/lib/mapStyle";
 import { MEDINA_CENTER } from "@/lib/places";
 
 // نمط خريطة مجاني بالكامل من OpenFreeMap (بدون مفتاح/بطاقة)
 const PICKER_STYLE = "https://tiles.openfreemap.org/styles/bright";
+
+// خيارات تبديل النمط داخل المنتقي — خريطة عادية أو صور قمر صناعي
+const PICKER_OPTIONS = [
+  { id: "bright", label: "خريطة" },
+  { id: "satellite", label: "قمر صناعي" },
+];
 
 // تشكيل وترتيب النص العربي في طبقة WebGL — حالة عامة لا نعيد تثبيتها
 function ensureRTLPlugin() {
@@ -27,6 +33,8 @@ export default function LocationPicker({ lng, lat, onChange }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const markerRef = useRef<maplibregl.Marker | null>(null);
+  const [styleId, setStyleId] = useState("bright");
+  const styleRef = useRef("bright");
 
   // مرجع حيّ كي يقرأ المعالج المرتبط مرة واحدة أحدث دالة onChange
   const onChangeRef = useRef(onChange);
@@ -95,10 +103,39 @@ export default function LocationPicker({ lng, lat, onChange }: Props) {
     map.easeTo({ center: [lng, lat], duration: 600 });
   }, [lng, lat]);
 
+  // تبديل نمط المنتقي (العلامة تبقى لأنها DOM وليست طبقة)
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || styleRef.current === styleId) return;
+    styleRef.current = styleId;
+    const def = MAP_STYLES.find((s) => s.id === styleId);
+    if (!def?.style) return;
+    map.setStyle(def.style);
+    map.once("style.load", () => applyArabicLabels(map));
+  }, [styleId]);
+
   return (
-    <div
-      ref={containerRef}
-      className="h-64 w-full overflow-hidden rounded-lg border border-slate-200"
-    />
+    <div className="relative">
+      <div
+        ref={containerRef}
+        className="h-64 w-full overflow-hidden rounded-lg border border-slate-200"
+      />
+      <div className="absolute right-2 top-2 z-10 flex gap-1 rounded-lg bg-white/90 p-1 shadow ring-1 ring-black/5">
+        {PICKER_OPTIONS.map((o) => (
+          <button
+            key={o.id}
+            type="button"
+            onClick={() => setStyleId(o.id)}
+            className={`rounded-md px-2 py-1 text-xs transition ${
+              styleId === o.id
+                ? "bg-slate-800 text-white"
+                : "text-slate-600 hover:bg-slate-100"
+            }`}
+          >
+            {o.label}
+          </button>
+        ))}
+      </div>
+    </div>
   );
 }

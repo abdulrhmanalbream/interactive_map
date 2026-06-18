@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import maplibregl from "maplibre-gl";
+import type { StyleSpecification } from "maplibre-gl";
 import { applyArabicLabels } from "@/lib/mapStyle";
 import {
   CATEGORY_COLORS,
@@ -36,7 +37,7 @@ const CUSTOM_LAYER_SET = new Set(CUSTOM_LAYER_IDS);
 
 type Props = {
   places: Place[];
-  styleUrl: string;
+  mapStyle: string | StyleSpecification;
   focus: { lng: number; lat: number; zoom?: number } | null;
   searchMarker: LngLat | null;
   origin: LngLat | null;
@@ -181,7 +182,7 @@ function addAppLayers(map: maplibregl.Map) {
 
 export default function MapView({
   places,
-  styleUrl,
+  mapStyle,
   focus,
   searchMarker,
   origin,
@@ -193,7 +194,7 @@ export default function MapView({
   const mapRef = useRef<maplibregl.Map | null>(null);
   const searchMarkerRef = useRef<maplibregl.Marker | null>(null);
   const originMarkerRef = useRef<maplibregl.Marker | null>(null);
-  const styleRef = useRef(styleUrl);
+  const styleRef = useRef(mapStyle);
   const [ready, setReady] = useState(false);
 
   // مراجع حيّة كي تقرأ معالجات الأحداث (المرتبطة مرة واحدة) أحدث القيم
@@ -293,10 +294,10 @@ export default function MapView({
   // تبديل نمط الخريطة مع الحفاظ على مصادرنا وطبقاتنا
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !ready || styleRef.current === styleUrl) return;
-    styleRef.current = styleUrl;
+    if (!map || !ready || styleRef.current === mapStyle) return;
+    styleRef.current = mapStyle;
 
-    map.setStyle(styleUrl, {
+    map.setStyle(mapStyle, {
       transformStyle: (prev, next) => {
         if (!prev) return next;
         const sources = { ...next.sources };
@@ -312,7 +313,7 @@ export default function MapView({
       },
     });
     map.once("style.load", () => applyArabicLabels(map, CUSTOM_LAYER_SET));
-  }, [styleUrl, ready]);
+  }, [mapStyle, ready]);
 
   // تحديث بيانات النقاط (يشمل الفلترة) للمصدرين
   useEffect(() => {
