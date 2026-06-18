@@ -1,27 +1,33 @@
-import { createClient, type Client } from "@libsql/client";
+import type { Client } from "@libsql/client";
 import { PLACES } from "./places";
 
 /**
  * عميل قاعدة بيانات SQLite عبر libSQL.
- * - محليًا: ملف local.db (مجاني، بدون إعداد).
- * - للإنتاج لاحقًا: يكفي ضبط DATABASE_URL و DATABASE_AUTH_TOKEN لخدمة Turso المجانية.
+ * - محليًا (file:): العميل الأصلي (native).
+ * - الإنتاج/Turso (libsql:// أو https://): عميل الويب (fetch فقط، بدون native)
+ *   — وهو الأنسب لبيئة Vercel/serverless.
  */
 const globalForDb = globalThis as unknown as {
-  _libsql?: Client;
-  _dbInit?: Promise<void>;
+  _dbInit?: Promise<Client>;
 };
 
-function createDbClient(): Client {
+async function createDbClient(): Promise<Client> {
   const url = process.env.DATABASE_URL ?? "file:local.db";
   const authToken = process.env.DATABASE_AUTH_TOKEN;
+
+  if (url.startsWith("file:")) {
+    const { createClient } = await import("@libsql/client");
+    return createClient({ url });
+  }
+
+  const { createClient } = await import("@libsql/client/web");
   return createClient(authToken ? { url, authToken } : { url });
 }
 
-const client = globalForDb._libsql ?? createDbClient();
-if (process.env.NODE_ENV !== "production") globalForDb._libsql = client;
+/** ينشئ العميل ثم الجدول ويعبّئ البيانات التجريبية مرة واحدة. */
+async function init(): Promise<Client> {
+  const client = await createDbClient();
 
-/** ينشئ الجدول ويعبّئ البيانات التجريبية مرة واحدة عند أول استخدام. */
-async function initOnce(): Promise<void> {
   await client.execute(`
     CREATE TABLE IF NOT EXISTS places (
       id          TEXT PRIMARY KEY,
@@ -46,10 +52,11 @@ async function initOnce(): Promise<void> {
       });
     }
   }
+
+  return client;
 }
 
 export async function getDb(): Promise<Client> {
-  if (!globalForDb._dbInit) globalForDb._dbInit = initOnce();
-  await globalForDb._dbInit;
-  return client;
+  if (!globalForDb._dbInit) globalForDb._dbInit = init();
+  return globalForDb._dbInit;
 }
