@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import {
   CATEGORY_COLORS,
@@ -11,6 +12,19 @@ import {
   type Place,
   type PlaceCategory,
 } from "@/lib/places";
+import { isShortGoogleMapsLink, parseGoogleMapsUrl } from "@/lib/google-maps-link";
+
+// منتقي الموقع يعتمد على MapLibre (window) — نحمّله في المتصفح فقط
+const LocationPicker = dynamic(() => import("./LocationPicker"), {
+  ssr: false,
+  loading: () => (
+    <div className="flex h-64 w-full items-center justify-center rounded-lg border border-slate-200 bg-slate-100 text-sm text-slate-500">
+      جارٍ تحميل الخريطة…
+    </div>
+  ),
+});
+
+type LinkState = "idle" | "loading" | "ok" | "error";
 
 type FormState = {
   name: string;
@@ -39,6 +53,11 @@ export default function AdminDashboard() {
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
+  // إدخال الموقع: رابط جوجل + منتقي الخريطة
+  const [linkUrl, setLinkUrl] = useState("");
+  const [linkState, setLinkState] = useState<LinkState>("idle");
+  const [showPicker, setShowPicker] = useState(false);
+
   async function loadPlaces() {
     setLoading(true);
     const res = await fetch("/api/places");
@@ -64,10 +83,16 @@ export default function AdminDashboard() {
     };
   }, []);
 
+  function resetLinkState() {
+    setLinkUrl("");
+    setLinkState("idle");
+  }
+
   function startCreate() {
     setEditingId(null);
     setForm(EMPTY_FORM);
     setError(null);
+    resetLinkState();
   }
 
   function startEdit(p: Place) {
@@ -81,7 +106,43 @@ export default function AdminDashboard() {
       description: p.description,
     });
     setError(null);
+    resetLinkState();
     window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  /** يحدّث حقلي الإحداثيات بدقّة معقولة (6 خانات ≈ 0.1م). */
+  function setCoords(lng: number, lat: number) {
+    setForm((f) => ({ ...f, lng: lng.toFixed(6), lat: lat.toFixed(6) }));
+  }
+
+  /** استخراج الإحداثيات من رابط جوجل ماب (محليًا، ثم عبر الخادم للروابط المختصرة). */
+  async function extractFromLink() {
+    const url = linkUrl.trim();
+    if (!url) return;
+    setLinkState("loading");
+
+    const local = parseGoogleMapsUrl(url);
+    if (local) {
+      setCoords(local.lng, local.lat);
+      setLinkState("ok");
+      return;
+    }
+
+    // الروابط المختصرة (maps.app.goo.gl) تُفكّ على الخادم
+    try {
+      const res = await fetch(
+        `/api/resolve-map-link?url=${encodeURIComponent(url)}`,
+      );
+      const data = await res.json();
+      if (res.ok && Number.isFinite(data.lat) && Number.isFinite(data.lng)) {
+        setCoords(Number(data.lng), Number(data.lat));
+        setLinkState("ok");
+      } else {
+        setLinkState("error");
+      }
+    } catch {
+      setLinkState("error");
+    }
   }
 
   async function submit(e: React.FormEvent) {
@@ -134,6 +195,11 @@ export default function AdminDashboard() {
   function set<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((f) => ({ ...f, [key]: value }));
   }
+
+  // الإحداثيات الرقمية الحالية (null إذا كان الحقل فارغًا/غير صالح)
+  const lngNum = form.lng.trim() === "" ? NaN : Number(form.lng);
+  const latNum = form.lat.trim() === "" ? NaN : Number(form.lat);
+  const coordsValid = Number.isFinite(lngNum) && Number.isFinite(latNum);
 
   return (
     <div className="mx-auto max-w-5xl p-4 sm:p-6">
@@ -201,27 +267,119 @@ export default function AdminDashboard() {
           </select>
         </label>
 
-        <div className="grid grid-cols-2 gap-3 text-sm">
-          <label>
-            <span className="mb-1 block text-slate-500">خط الطول (lng) *</span>
-            <input
-              value={form.lng}
-              onChange={(e) => set("lng", e.target.value)}
-              inputMode="decimal"
-              required
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-teal-500"
-            />
+        {/* الموقع: ثلاث طرق — رابط جوجل، إدخال يدوي، أو تحديد من الخريطة */}
+        <div className="col-span-full rounded-lg border border-slate-200 bg-slate-50 p-3">
+          <span className="mb-2 block text-sm font-medium text-slate-600">
+            الموقع *
+          </span>
+
+          {/* 1) رابط خرائط جوجل */}
+          <label className="block text-sm">
+            <span className="mb-1 block text-slate-500">
+              لصق رابط من خرائط جوجل
+            </span>
+            <div className="flex gap-2">
+              <input
+                value={linkUrl}
+                onChange={(e) => {
+                  setLinkUrl(e.target.value);
+                  if (linkState !== "idle") setLinkState("idle");
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    extractFromLink();
+                  }
+                }}
+                placeholder="https://maps.app.goo.gl/…  أو  https://www.google.com/maps/@24.46,39.61…"
+                dir="ltr"
+                className="min-w-0 flex-1 rounded-lg border border-slate-300 px-3 py-2 text-left outline-none focus:border-teal-500"
+              />
+              <button
+                type="button"
+                onClick={extractFromLink}
+                disabled={linkState === "loading" || !linkUrl.trim()}
+                className="shrink-0 rounded-lg bg-slate-700 px-3 py-2 text-sm font-medium text-white hover:bg-slate-600 disabled:opacity-40"
+              >
+                {linkState === "loading" ? "جارٍ…" : "استخراج"}
+              </button>
+            </div>
+            {linkState === "ok" && (
+              <span className="mt-1 block text-xs text-teal-600">
+                ✓ تم استخراج الإحداثيات من الرابط.
+              </span>
+            )}
+            {linkState === "error" && (
+              <span className="mt-1 block text-xs text-red-600">
+                تعذّر قراءة الإحداثيات من هذا الرابط. جرّب رابطًا آخر أو حدّد من
+                الخريطة.
+              </span>
+            )}
+            {linkState === "idle" && linkUrl.trim() !== "" &&
+              isShortGoogleMapsLink(linkUrl) && (
+                <span className="mt-1 block text-xs text-slate-400">
+                  رابط مختصر — سيُفكّ عبر الخادم عند الضغط على «استخراج».
+                </span>
+              )}
           </label>
-          <label>
-            <span className="mb-1 block text-slate-500">خط العرض (lat) *</span>
-            <input
-              value={form.lat}
-              onChange={(e) => set("lat", e.target.value)}
-              inputMode="decimal"
-              required
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-teal-500"
-            />
-          </label>
+
+          {/* 2) إدخال يدوي */}
+          <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
+            <label>
+              <span className="mb-1 block text-slate-500">خط الطول (lng)</span>
+              <input
+                value={form.lng}
+                onChange={(e) => set("lng", e.target.value)}
+                inputMode="decimal"
+                required
+                className="w-full rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-teal-500"
+              />
+            </label>
+            <label>
+              <span className="mb-1 block text-slate-500">خط العرض (lat)</span>
+              <input
+                value={form.lat}
+                onChange={(e) => set("lat", e.target.value)}
+                inputMode="decimal"
+                required
+                className="w-full rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-teal-500"
+              />
+            </label>
+          </div>
+
+          {/* 3) تحديد من الخريطة */}
+          <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1">
+            <button
+              type="button"
+              onClick={() => setShowPicker((v) => !v)}
+              className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50"
+            >
+              🗺️ {showPicker ? "إخفاء الخريطة" : "تحديد من الخريطة"}
+            </button>
+            {coordsValid && (
+              <a
+                href={`https://www.google.com/maps?q=${latNum},${lngNum}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs text-teal-600 hover:underline"
+              >
+                معاينة على خرائط جوجل ↗
+              </a>
+            )}
+          </div>
+
+          {showPicker && (
+            <div className="mt-2">
+              <p className="mb-1.5 text-xs text-slate-500">
+                اضغط على الخريطة أو اسحب الدبوس لتحديد الموقع.
+              </p>
+              <LocationPicker
+                lng={coordsValid ? lngNum : null}
+                lat={coordsValid ? latNum : null}
+                onChange={setCoords}
+              />
+            </div>
+          )}
         </div>
 
         <label className="col-span-full text-sm">
