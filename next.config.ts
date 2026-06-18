@@ -1,7 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  // أبقِ وحدة libSQL الأصلية (native) خارج حزمة الـ bundle لتعمل على Vercel/serverless
+  serverExternalPackages: ["@libsql/client", "libsql"],
 };
 
 export default nextConfig;

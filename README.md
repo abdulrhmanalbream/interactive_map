@@ -1,36 +1,83 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# خريطة المدينة المنورة التفاعلية
 
-## Getting Started
+موقع تجريبي (Next.js) فيه خريطة تفاعلية خفيفة، **مجانية بالكامل بدون مفتاح API ولا بطاقة ائتمان**.
 
-First, run the development server:
+## التقنيات (الستاك المجاني)
 
+| الوظيفة | الأداة | ملاحظة |
+|---------|--------|---------|
+| عرض الخريطة | **MapLibre GL JS** | مفتوح المصدر، Vector/WebGL، خفيف على الجهاز |
+| بلاطات الخريطة | **OpenFreeMap** (`styles/liberty`) | مجاني، بدون مفتاح، تسميات عربية |
+| البحث الجغرافي | **Nominatim** (OpenStreetMap) | عبر `/api/search`، نتائج بالعربية منحازة للمدينة |
+| المسارات | **OSRM** (سيرفر demo عام) | عبر `/api/directions` |
+| قاعدة البيانات | **SQLite عبر libSQL** (`@libsql/client`) | ملف `local.db`، بدون إعداد، قابل للترقية لـ Turso |
+| مصادقة الأدمن | **كلمة مرور + cookie موقّع (HMAC)** | بدون خدمة خارجية، إعدادها في `.env.local` |
+| الإطار | **Next.js 16** (App Router) + React 19 + Tailwind v4 | الخريطة تُحمَّل client-side فقط |
+
+## المميزات
+- عرض المعالم بتصنيفات ملوّنة (مساجد / معالم / مواصلات / تجاري).
+- **تجميع العلامات (clustering)** تلقائيًا — يتحمّل آلاف النقاط بأداء خفيف.
+- **فلترة حسب التصنيف** مع مفتاح ألوان (legend) قابل للنقر.
+- بحث فوري (autocomplete) عن الأماكن بالعربية.
+- حساب الاتجاهات والمسافة والزمن من موقعك (أو من المسجد النبوي) إلى أي وجهة.
+- زر "موقعي" (تحديد الموقع عبر المتصفح) وزر "العودة للمدينة".
+- خريطة حرارية (heatmap) قابلة للتبديل.
+- تسميات الخريطة بالعربية تلقائيًا (مع تشكيل وترتيب RTL صحيح عبر mapbox-gl-rtl-text المستضاف محليًا).
+- خط Cairo مستضاف محليًا (`@fontsource-variable/cairo`) — بدون اتصال خارجي وقت البناء.
+
+## التشغيل
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+npm run dev      # http://localhost:3000
+```
+- الخريطة: `http://localhost:3000`
+- لوحة الأدمن: `http://localhost:3000/admin` (كلمة المرور في `.env.local`، الافتراضية `madinah-admin-2026`).
+
+> قاعدة البيانات تُنشأ تلقائيًا (`local.db`) وتُعبّأ بالبيانات التجريبية أول مرة — لا حاجة لأي migration.
+
+## الباك اند ولوحة الأدمن
+- **قاعدة البيانات**: SQLite محلي عبر libSQL، تتهيّأ وتُعبّأ ذاتيًا عند أول طلب (`src/lib/db.ts`).
+- **واجهات الـ API** (CRUD للأماكن):
+  - `GET /api/places` — قائمة الأماكن (عامّة، يستخدمها الموقع).
+  - `POST /api/places` — إضافة (أدمن).
+  - `PATCH /api/places/[id]` — تعديل (أدمن).
+  - `DELETE /api/places/[id]` — حذف (أدمن).
+  - `POST /api/admin/login` · `POST /api/admin/logout` — جلسة الأدمن.
+- **لوحة الأدمن** (`/admin`): إضافة/تعديل/حذف المعالم؛ محميّة بكلمة مرور.
+- الإعدادات في `.env.local`: `ADMIN_PASSWORD` و `AUTH_SECRET` (غيّرهما)، و(اختياري) `DATABASE_URL` + `DATABASE_AUTH_TOKEN` للترقية لـ Turso.
+
+## البنية
+```
+src/
+├─ app/
+│  ├─ layout.tsx              # عربي + RTL + خط Cairo
+│  ├─ page.tsx                # الصفحة الرئيسية (خريطة ملء الشاشة)
+│  ├─ admin/
+│  │  ├─ page.tsx             # لوحة الأدمن (محميّة، server)
+│  │  └─ login/page.tsx       # تسجيل دخول الأدمن
+│  └─ api/
+│     ├─ search/route.ts      # وسيط Nominatim (geocoding)
+│     ├─ directions/route.ts  # وسيط OSRM (routing)
+│     ├─ places/route.ts      # قائمة/إنشاء الأماكن
+│     ├─ places/[id]/route.ts # تعديل/حذف مكان
+│     └─ admin/…              # login / logout
+├─ components/
+│  ├─ MapApp.tsx              # الحالة + لوحة التحكم (client)
+│  ├─ MapView.tsx             # رسم الخريطة بـ MapLibre (client, dynamic ssr:false)
+│  └─ AdminDashboard.tsx      # واجهة إدارة المعالم (client)
+└─ lib/
+   ├─ places.ts               # التصنيفات + بيانات البذور (seed)
+   ├─ mapStyle.ts             # أنماط الخريطة + تعريب التسميات
+   ├─ db.ts                   # عميل libSQL + تهيئة/تعبئة ذاتية
+   ├─ places-repo.ts          # دوال CRUD + التحقق من المدخلات
+   └─ auth.ts                 # مصادقة الأدمن (cookie موقّع)
+
+public/
+└─ mapbox-gl-rtl-text.js      # إضافة تشكيل/ترتيب النص العربي (مستضافة محليًا)
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
-
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
-
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## ملاحظات مهمة للإنتاج (Scaling)
+الخدمات المجانية العامة المستخدمة هنا ممتازة للتجربة لكنها **ليست للإنتاج كثيف الحركة**:
+- **Nominatim** و **OSRM** العامان لهما حدود استخدام (rate limits) وبلا ضمان SLA.
+- عند التوسّع: استضِف **Nominatim** و **OSRM** ذاتيًا (كلاهما مفتوح المصدر ومجاني)، أو فكّر في **Protomaps (PMTiles)** لاستضافة بلاطات المدينة/المملكة ذاتيًا للتحكم الكامل والخفّة القصوى.
+- اكتمال بيانات OpenStreetMap في المدينة جيد للمعالم الرئيسية وقد يقل في المحلات الصغيرة مقارنة بمزودات تجارية.
