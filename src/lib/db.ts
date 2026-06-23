@@ -37,9 +37,19 @@ async function init(): Promise<Client> {
       lng         REAL NOT NULL,
       lat         REAL NOT NULL,
       description TEXT NOT NULL DEFAULT '',
+      image_url   TEXT NOT NULL DEFAULT '',
       created_at  INTEGER NOT NULL DEFAULT (unixepoch())
     )
   `);
+
+  // ترقية القواعد القديمة: أضف عمود الصورة إن لم يكن موجودًا
+  const cols = await client.execute("PRAGMA table_info(places)");
+  const hasImage = cols.rows.some((r) => String(r.name) === "image_url");
+  if (!hasImage) {
+    await client.execute(
+      "ALTER TABLE places ADD COLUMN image_url TEXT NOT NULL DEFAULT ''",
+    );
+  }
 
   const count = await client.execute("SELECT COUNT(*) AS c FROM places");
   if (Number(count.rows[0].c) === 0) {

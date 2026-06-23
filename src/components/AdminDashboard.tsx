@@ -33,6 +33,7 @@ type FormState = {
   lng: string;
   lat: string;
   description: string;
+  imageUrl: string;
 };
 
 const EMPTY_FORM: FormState = {
@@ -42,6 +43,7 @@ const EMPTY_FORM: FormState = {
   lng: String(MEDINA_CENTER[0]),
   lat: String(MEDINA_CENTER[1]),
   description: "",
+  imageUrl: "",
 };
 
 export default function AdminDashboard() {
@@ -57,6 +59,10 @@ export default function AdminDashboard() {
   const [linkUrl, setLinkUrl] = useState("");
   const [linkState, setLinkState] = useState<LinkState>("idle");
   const [showPicker, setShowPicker] = useState(false);
+
+  // رفع صورة المكان
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
 
   async function loadPlaces() {
     setLoading(true);
@@ -86,6 +92,39 @@ export default function AdminDashboard() {
   function resetLinkState() {
     setLinkUrl("");
     setLinkState("idle");
+    setUploadError(null);
+  }
+
+  /** رفع صورة إلى R2 ووضع رابطها في النموذج. */
+  async function onUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // اسمح بإعادة اختيار نفس الملف
+    if (!file) return;
+    setUploadError(null);
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch("/api/upload", { method: "POST", body: fd });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.url) {
+        set("imageUrl", data.url);
+      } else {
+        setUploadError(
+          res.status === 503
+            ? "التخزين غير مُهيّأ — أضف مفاتيح R2 في .env.local."
+            : res.status === 413
+              ? "حجم الصورة كبير (الحد 5 ميجابايت)."
+              : res.status === 415
+                ? "نوع الصورة غير مدعوم."
+                : "فشل الرفع. حاول مجددًا.",
+        );
+      }
+    } catch {
+      setUploadError("خطأ في الاتصال.");
+    } finally {
+      setUploading(false);
+    }
   }
 
   function startCreate() {
@@ -104,6 +143,7 @@ export default function AdminDashboard() {
       lng: String(p.lng),
       lat: String(p.lat),
       description: p.description,
+      imageUrl: p.imageUrl ?? "",
     });
     setError(null);
     resetLinkState();
@@ -156,6 +196,7 @@ export default function AdminDashboard() {
       lng: Number(form.lng),
       lat: Number(form.lat),
       description: form.description,
+      imageUrl: form.imageUrl,
     };
     const url = editingId ? `/api/places/${editingId}` : "/api/places";
     const method = editingId ? "PATCH" : "POST";
@@ -392,6 +433,58 @@ export default function AdminDashboard() {
           />
         </label>
 
+        {/* صورة / لوقو المكان */}
+        <div className="col-span-full text-sm">
+          <span className="mb-1 block text-slate-500">صورة / لوقو (اختياري)</span>
+          <div className="flex items-start gap-3">
+            {form.imageUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={form.imageUrl}
+                alt="معاينة"
+                className="h-16 w-16 shrink-0 rounded-lg object-cover ring-1 ring-slate-200"
+              />
+            ) : (
+              <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-xs text-slate-400">
+                لا صورة
+              </div>
+            )}
+            <div className="min-w-0 flex-1 space-y-2">
+              <div className="flex gap-2">
+                <label className="cursor-pointer rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-600 hover:bg-slate-50">
+                  {uploading ? "جارٍ الرفع…" : "رفع صورة"}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={onUpload}
+                    disabled={uploading}
+                    className="hidden"
+                  />
+                </label>
+                {form.imageUrl && (
+                  <button
+                    type="button"
+                    onClick={() => set("imageUrl", "")}
+                    className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50"
+                  >
+                    إزالة
+                  </button>
+                )}
+              </div>
+              <input
+                value={form.imageUrl}
+                onChange={(e) => set("imageUrl", e.target.value)}
+                placeholder="أو الصق رابط صورة مباشر"
+                dir="ltr"
+                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-left outline-none focus:border-teal-500"
+              />
+              {uploadError && (
+                <span className="block text-xs text-red-600">{uploadError}</span>
+              )}
+            </div>
+          </div>
+        </div>
+
         {error && (
           <p className="col-span-full text-sm text-red-600">{error}</p>
         )}
@@ -438,10 +531,19 @@ export default function AdminDashboard() {
                 key={p.id}
                 className="flex items-center gap-3 px-4 py-2.5 text-sm"
               >
-                <span
-                  className="h-3 w-3 shrink-0 rounded-full"
-                  style={{ backgroundColor: CATEGORY_COLORS[p.category] }}
-                />
+                {p.imageUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={p.imageUrl}
+                    alt=""
+                    className="h-8 w-8 shrink-0 rounded-md object-cover ring-1 ring-slate-200"
+                  />
+                ) : (
+                  <span
+                    className="h-3 w-3 shrink-0 rounded-full"
+                    style={{ backgroundColor: CATEGORY_COLORS[p.category] }}
+                  />
+                )}
                 <div className="min-w-0 flex-1">
                   <div className="truncate font-medium text-slate-800">
                     {p.name}

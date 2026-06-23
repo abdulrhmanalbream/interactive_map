@@ -9,6 +9,7 @@ export type PlaceInput = {
   lng: number;
   lat: number;
   description?: string;
+  imageUrl?: string;
 };
 
 /** يتحقّق من جسم الطلب ويعيد مدخلًا صالحًا أو null. */
@@ -30,6 +31,7 @@ export function parsePlaceInput(body: unknown): PlaceInput | null {
     lng,
     lat,
     description: typeof b.description === "string" ? b.description.trim() : "",
+    imageUrl: typeof b.imageUrl === "string" ? b.imageUrl.trim() : "",
   };
 }
 
@@ -44,6 +46,7 @@ function rowToPlace(row: Row): Place {
     lng: Number(row.lng),
     lat: Number(row.lat),
     description: String(row.description ?? ""),
+    imageUrl: String(row.image_url ?? ""),
   };
 }
 
@@ -68,8 +71,8 @@ export async function createPlace(input: PlaceInput): Promise<Place> {
   const db = await getDb();
   const id = randomUUID();
   await db.execute({
-    sql: `INSERT INTO places (id, name, name_en, category, lng, lat, description)
-          VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    sql: `INSERT INTO places (id, name, name_en, category, lng, lat, description, image_url)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     args: [
       id,
       input.name,
@@ -78,6 +81,7 @@ export async function createPlace(input: PlaceInput): Promise<Place> {
       input.lng,
       input.lat,
       input.description ?? "",
+      input.imageUrl ?? "",
     ],
   });
   return {
@@ -88,6 +92,7 @@ export async function createPlace(input: PlaceInput): Promise<Place> {
     lng: input.lng,
     lat: input.lat,
     description: input.description ?? "",
+    imageUrl: input.imageUrl ?? "",
   };
 }
 
@@ -98,7 +103,7 @@ export async function updatePlace(
   const db = await getDb();
   const res = await db.execute({
     sql: `UPDATE places
-          SET name = ?, name_en = ?, category = ?, lng = ?, lat = ?, description = ?
+          SET name = ?, name_en = ?, category = ?, lng = ?, lat = ?, description = ?, image_url = ?
           WHERE id = ?`,
     args: [
       input.name,
@@ -107,6 +112,7 @@ export async function updatePlace(
       input.lng,
       input.lat,
       input.description ?? "",
+      input.imageUrl ?? "",
       id,
     ],
   });

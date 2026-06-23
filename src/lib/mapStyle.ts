@@ -36,6 +36,35 @@ const SATELLITE_STYLE: StyleSpecification = {
 let hybridCache: Promise<StyleSpecification> | null = null;
 
 /**
+ * يصغّر قيمة خاصية رقمية (عرض/شفافية الخط) بمعامل، مع الحفاظ على بنية التعبير.
+ * لا نغلّف interpolate بـ * لأن تعبيرات zoom يجب أن تكون في القمة — بل نضرب
+ * قيم المخرجات داخل interpolate/step نفسها.
+ */
+function scaleNumeric(value: unknown, factor: number, fallback: number): unknown {
+  if (value == null) return fallback * factor;
+  if (typeof value === "number") return value * factor;
+  if (Array.isArray(value)) {
+    const op = value[0];
+    const out = value.slice();
+    if (op === "interpolate" || op === "interpolate-hcl" || op === "interpolate-lab") {
+      // [op, interpolation, input, in0, out0, in1, out1, ...] — المخرجات من الفهرس 4
+      for (let i = 4; i < out.length; i += 2) {
+        if (typeof out[i] === "number") out[i] = (out[i] as number) * factor;
+      }
+      return out;
+    }
+    if (op === "step") {
+      // [step, input, out0, stop1, out1, ...] — المخرجات من الفهرس 2
+      for (let i = 2; i < out.length; i += 2) {
+        if (typeof out[i] === "number") out[i] = (out[i] as number) * factor;
+      }
+      return out;
+    }
+  }
+  return value; // تعبير غير معروف — نتركه كما هو
+}
+
+/**
  * نمط هجين = صور الأقمار الصناعية + تسميات الشوارع/المعالم فوقها.
  * نجلب ستايل OpenFreeMap المتجهي ونبقي فقط طبقات النصوص والخطوط (symbol + line)
  * ونضع تحتها طبقة صور Esri. يُعرَّب تلقائيًا عبر applyArabicLabels لاحقًا.
@@ -46,9 +75,19 @@ export function buildHybridStyle(): Promise<StyleSpecification> {
       const res = await fetch("https://tiles.openfreemap.org/styles/bright");
       if (!res.ok) throw new Error("failed to load base style");
       const base = (await res.json()) as StyleSpecification;
-      const overlay = (base.layers ?? []).filter(
-        (l) => l.type === "symbol" || l.type === "line",
-      );
+      // نُبقي التسميات والطرق فقط، ونُخفّف شفافية الخطوط كي لا تطغى على صور
+      // القمر الصناعي. أمّا تنحيف عرض الطرق فيُطبَّق لاحقًا عبر thinRoadLines
+      // على جميع الأنماط بشكل موحّد.
+      const overlay = (base.layers ?? [])
+        .filter((l) => l.type === "symbol" || l.type === "line")
+        .map((l) => {
+          if (l.type !== "line") return l;
+          const paint = {
+            ...(l.paint as Record<string, unknown> | undefined),
+          } as Record<string, unknown>;
+          paint["line-opacity"] = scaleNumeric(paint["line-opacity"], 0.8, 1);
+          return { ...l, paint } as unknown as typeof l;
+        });
       return {
         ...base,
         sources: { ...base.sources, satellite: satelliteSource() },
@@ -110,6 +149,32 @@ export const MAP_STYLES: MapStyleDef[] = [
     build: buildHybridStyle,
   },
 ];
+
+/** معامل تنحيف عرض خطوط الطرق (0.5 = نصف العرض الأصلي). */
+const ROAD_WIDTH_FACTOR = 0.5;
+
+/**
+ * يُنحّف عرض خطوط الطرق (الأبيض/الأصفر…) في النمط الأساسي كي لا تطغى على الخريطة.
+ * يستهدف طبقات الخطوط ذات source-layer = "transportation" (مخطط OpenMapTiles)،
+ * ويصغّر تعبير line-width مع الحفاظ على بنية التدرّج حسب الزووم.
+ */
+export function thinRoadLines(map: MapLibreMap, factor = ROAD_WIDTH_FACTOR) {
+  for (const layer of map.getStyle().layers ?? []) {
+    if (layer.type !== "line") continue;
+    const sourceLayer = (layer as { "source-layer"?: string })["source-layer"];
+    if (sourceLayer !== "transportation") continue;
+    try {
+      const width = map.getPaintProperty(layer.id, "line-width");
+      map.setPaintProperty(
+        layer.id,
+        "line-width",
+        scaleNumeric(width, factor, 1) as never,
+      );
+    } catch {
+      // بعض الطبقات قد لا تقبل التعديل — نتجاهلها بأمان
+    }
+  }
+}
 
 /**
  * يجعل تسميات الخريطة عربية كلما توفّر الاسم العربي في بيانات OpenStreetMap،

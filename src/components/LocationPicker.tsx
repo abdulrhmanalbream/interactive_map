@@ -109,9 +109,23 @@ export default function LocationPicker({ lng, lat, onChange }: Props) {
     if (!map || styleRef.current === styleId) return;
     styleRef.current = styleId;
     const def = MAP_STYLES.find((s) => s.id === styleId);
-    if (!def?.style) return;
-    map.setStyle(def.style);
-    map.once("style.load", () => applyArabicLabels(map));
+    if (!def) return;
+    const applyArabic = () =>
+      map.once("style.load", () => applyArabicLabels(map));
+    if (def.style) {
+      map.setStyle(def.style);
+      applyArabic();
+    } else if (def.build) {
+      def
+        .build()
+        .then((s) => {
+          // تجاهل النتيجة إن بدّل المستخدم النمط أثناء الجلب
+          if (styleRef.current !== styleId) return;
+          map.setStyle(s);
+          applyArabic();
+        })
+        .catch(() => {});
+    }
   }, [styleId]);
 
   return (

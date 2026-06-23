@@ -2,7 +2,10 @@ import { NextResponse } from "next/server";
 
 /**
  * وسيط حساب المسارات عبر OSRM المجاني (سيرفر demo عام، بدون مفتاح).
- * يستقبل from و to بصيغة "lng,lat" ويعيد خط المسار + المسافة + الزمن.
+ * يقبل إمّا:
+ *   - coords="lng,lat;lng,lat;..."  (وجهات متعددة، نقطتان فأكثر)
+ *   - from="lng,lat" & to="lng,lat" (الصيغة القديمة — للتوافق)
+ * ويعيد خط المسار + المسافة الكليّة + الزمن الكلي.
  *
  * ملاحظة للإنتاج: router.project-osrm.org سيرفر تجريبي بلا ضمان توفّر.
  * عند التوسّع استضِف OSRM ذاتيًا أو استخدم خدمة موجّهات بديلة.
@@ -15,19 +18,33 @@ function parseCoord(value: string | null): [number, number] | null {
   return [parts[0], parts[1]]; // [lng, lat]
 }
 
+/** يحلّل قائمة إحداثيات "lng,lat;lng,lat;..." — يعيد null عند أي عنصر غير صالح. */
+function parseCoordList(value: string | null): [number, number][] | null {
+  if (!value) return null;
+  const pairs = value.split(";").map((p) => parseCoord(p));
+  if (pairs.length < 2 || pairs.some((p) => p === null)) return null;
+  return pairs as [number, number][];
+}
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
-  const from = parseCoord(searchParams.get("from"));
-  const to = parseCoord(searchParams.get("to"));
 
-  if (!from || !to) {
+  // نقاط المسار: من coords (متعددة) أو من from/to (نقطتان)
+  let points = parseCoordList(searchParams.get("coords"));
+  if (!points) {
+    const from = parseCoord(searchParams.get("from"));
+    const to = parseCoord(searchParams.get("to"));
+    if (from && to) points = [from, to];
+  }
+
+  if (!points) {
     return NextResponse.json(
       { error: "invalid_coordinates" },
       { status: 400 },
     );
   }
 
-  const coords = `${from[0]},${from[1]};${to[0]},${to[1]}`;
+  const coords = points.map(([lng, lat]) => `${lng},${lat}`).join(";");
   const url = new URL(
     `https://router.project-osrm.org/route/v1/driving/${coords}`,
   );

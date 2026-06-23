@@ -8,6 +8,8 @@ export type Place = {
   lng: number;
   lat: number;
   description: string;
+  /** رابط صورة/لوقو المكان (اختياري) — مستضاف على Cloudflare R2 أو أي رابط مباشر. */
+  imageUrl?: string;
 };
 
 /** مركز المدينة المنورة الافتراضي للخريطة [خط الطول، خط العرض] */

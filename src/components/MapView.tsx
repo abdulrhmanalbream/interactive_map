@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import maplibregl from "maplibre-gl";
 import type { StyleSpecification } from "maplibre-gl";
-import { applyArabicLabels } from "@/lib/mapStyle";
+import { applyArabicLabels, thinRoadLines } from "@/lib/mapStyle";
 import {
   CATEGORY_COLORS,
   CATEGORY_LABELS,
@@ -11,6 +12,22 @@ import {
   MEDINA_CENTER,
   type Place,
 } from "@/lib/places";
+import { CATEGORY_ICON } from "@/lib/category-icons";
+import type { PlaceCategory } from "@/lib/places";
+
+// نخزّن نص الـ SVG لأيقونة كل تصنيف كي لا نُعيد التحويل مع كل علامة.
+const iconSvgCache = new Map<string, string>();
+
+/** أيقونة التصنيف كسلسلة SVG لإدراجها داخل عنصر DOM (علامات MapLibre ليست React). */
+function categoryIconSvg(category: string, color = "#fff", size = 15) {
+  const cached = iconSvgCache.get(category);
+  if (cached) return cached;
+  const Icon = CATEGORY_ICON[category as PlaceCategory];
+  if (!Icon) return "";
+  const svg = renderToStaticMarkup(<Icon size={size} color={color} />);
+  iconSvgCache.set(category, svg);
+  return svg;
+}
 
 export type LngLat = { lng: number; lat: number };
 
@@ -30,7 +47,6 @@ const CUSTOM_LAYER_IDS = [
   "places-heatmap",
   "clusters",
   "cluster-count",
-  "unclustered-point",
   "unclustered-label",
 ];
 const CUSTOM_LAYER_SET = new Set(CUSTOM_LAYER_IDS);
@@ -59,34 +75,70 @@ function toFeatureCollection(places: Place[]) {
         name: p.name,
         category: p.category,
         description: p.description,
+        image: p.imageUrl ?? "",
       },
     })),
   };
 }
 
-// لون النقطة حسب التصنيف (تعبير معتمد على البيانات)
-const categoryColorExpr = [
-  "match",
-  ["get", "category"],
-  "mosque",
-  CATEGORY_COLORS.mosque,
-  "landmark",
-  CATEGORY_COLORS.landmark,
-  "transport",
-  CATEGORY_COLORS.transport,
-  "commercial",
-  CATEGORY_COLORS.commercial,
-  "#64748b",
-];
+// محتوى نافذة المكان (popup) — يتضمّن الصورة إن وُجدت
+function placePopupHTML(props: Record<string, string>) {
+  const img = props.image
+    ? `<img src="${props.image.replace(/"/g, "%22")}" alt="" style="width:100%;height:90px;object-fit:cover;border-radius:8px;margin-bottom:6px" />`
+    : "";
+  const cat =
+    CATEGORY_LABELS[props.category as keyof typeof CATEGORY_LABELS] ?? "";
+  return `<div style="text-align:right;max-width:220px">
+     ${img}
+     <strong>${props.name}</strong>
+     <div style="font-size:12px;color:#64748b">${cat}</div>
+     <div style="font-size:13px;margin-top:4px">${props.description ?? ""}</div>
+   </div>`;
+}
+
+// عنصر العلامة:
+// - مع صورة: دائرة كبيرة (50px) بإطار بلون التصنيف تعرض لوقو/صورة المكان.
+// - بلا صورة: دائرة أصغر (32px) بلون التصنيف وأيقونة في الوسط — أنظف وأقل ازدحامًا.
+function createBoardElement(props: Record<string, string>) {
+  const color =
+    CATEGORY_COLORS[props.category as keyof typeof CATEGORY_COLORS] ??
+    "#64748b";
+  const el = document.createElement("div");
+  if (props.image) {
+    el.style.cssText = `width:50px;height:50px;border-radius:50%;border:3px solid ${color};background:${color};box-shadow:0 2px 6px rgba(0,0,0,.35);overflow:hidden;cursor:pointer;display:block`;
+    const img = document.createElement("img");
+    img.src = props.image;
+    img.alt = "";
+    img.style.cssText =
+      "width:100%;height:100%;object-fit:cover;display:block";
+    // عند فشل تحميل الصورة نُظهر الأيقونة البديلة بدل الصورة المكسورة
+    img.addEventListener("error", () => {
+      img.remove();
+      el.style.cssText = noImageStyle(color);
+      el.innerHTML = categoryIconSvg(props.category);
+    });
+    el.appendChild(img);
+  } else {
+    el.style.cssText = noImageStyle(color);
+    el.innerHTML = categoryIconSvg(props.category);
+  }
+  return el;
+}
+
+function noImageStyle(color: string) {
+  return `width:32px;height:32px;border-radius:50%;border:2px solid #fff;background:${color};box-shadow:0 2px 5px rgba(0,0,0,.35);cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1`;
+}
 
 // يضيف مصادرنا وطبقاتنا فوق نمط الخريطة الأساسي
 function addAppLayers(map: maplibregl.Map) {
+  // التجميع يحدث فقط عند التصغير الكبير (zoom ≤ 10)؛ من zoom 11 فأعلى
+  // (يشمل الزووم الافتراضي) تظهر كل النقاط مفردة بأسمائها وصورها.
   map.addSource("places", {
     type: "geojson",
     data: EMPTY_FC,
     cluster: true,
-    clusterRadius: 50,
-    clusterMaxZoom: 13,
+    clusterRadius: 45,
+    clusterMaxZoom: 10,
   });
   map.addSource("places-heat", { type: "geojson", data: EMPTY_FC });
   map.addSource("route", { type: "geojson", data: EMPTY_FC });
@@ -145,30 +197,19 @@ function addAppLayers(map: maplibregl.Map) {
     paint: { "text-color": "#ffffff" },
   });
 
-  map.addLayer({
-    id: "unclustered-point",
-    type: "circle",
-    source: "places",
-    filter: ["!", ["has", "point_count"]],
-    paint: {
-      "circle-color": categoryColorExpr as never,
-      "circle-radius": 8,
-      "circle-stroke-width": 2,
-      "circle-stroke-color": "#ffffff",
-    },
-  });
-
+  // النقاط المفردة تُعرض كعلامات HTML (بادج اللوقو) — انظر updateMarkers.
+  // نُبقي تسمية الاسم فقط، ونزيح إزاحتها كي لا تتداخل مع البادج.
   map.addLayer({
     id: "unclustered-label",
     type: "symbol",
     source: "places",
     filter: ["!", ["has", "point_count"]],
-    minzoom: 13,
+    minzoom: 11,
     layout: {
       "text-field": ["get", "name"],
       "text-font": ["Noto Sans Regular"],
       "text-size": 12,
-      "text-offset": [0, 1.4],
+      "text-offset": [0, 2.6],
       "text-anchor": "top",
       "text-optional": true,
     },
@@ -194,6 +235,8 @@ export default function MapView({
   const mapRef = useRef<maplibregl.Map | null>(null);
   const searchMarkerRef = useRef<maplibregl.Marker | null>(null);
   const originMarkerRef = useRef<maplibregl.Marker | null>(null);
+  // علامات اللوقو (HTML) للنقاط المفردة، مفهرسة بمعرّف المكان
+  const placeMarkersRef = useRef<Record<string, maplibregl.Marker>>({});
   const styleRef = useRef(mapStyle);
   const [ready, setReady] = useState(false);
 
@@ -230,6 +273,7 @@ export default function MapView({
 
     map.on("load", () => {
       applyArabicLabels(map, CUSTOM_LAYER_SET);
+      thinRoadLines(map);
       addAppLayers(map);
 
       // التقريب عند الضغط على تجميع
@@ -245,47 +289,72 @@ export default function MapView({
         map.easeTo({ center: center as [number, number], zoom });
       });
 
-      // اختيار نقطة مفردة: نافذة + تحديدها كوجهة
-      map.on("click", "unclustered-point", (e) => {
-        const f = e.features?.[0];
-        if (!f) return;
-        const props = f.properties as Record<string, string>;
-        const coords = (f.geometry as GeoJSON.Point).coordinates as [
-          number,
-          number,
-        ];
-        new maplibregl.Popup({ offset: 14 })
-          .setLngLat(coords)
-          .setHTML(
-            `<div style="text-align:right">
-               <strong>${props.name}</strong>
-               <div style="font-size:12px;color:#64748b">${
-                 CATEGORY_LABELS[
-                   props.category as keyof typeof CATEGORY_LABELS
-                 ] ?? ""
-               }</div>
-               <div style="font-size:13px;margin-top:4px">${props.description ?? ""}</div>
-             </div>`,
-          )
-          .addTo(map);
-        const place = placesRef.current.find((p) => p.id === props.id);
-        if (place) onSelectRef.current(place);
-      });
+      // مزامنة علامات اللوقو مع النقاط المفردة الظاهرة (غير المُجمّعة)
+      const updateMarkers = () => {
+        if (!map.getSource("places")) return;
+        let feats: maplibregl.GeoJSONFeature[];
+        try {
+          feats = map.querySourceFeatures("places", {
+            filter: ["!", ["has", "point_count"]],
+          });
+        } catch {
+          return;
+        }
+        const markers = placeMarkersRef.current;
+        const present = new Set<string>();
+        for (const f of feats) {
+          const props = f.properties as Record<string, string>;
+          const id = props.id;
+          if (!id || present.has(id)) continue;
+          present.add(id);
+          const coords = (f.geometry as GeoJSON.Point).coordinates as [
+            number,
+            number,
+          ];
+          const existing = markers[id];
+          if (existing) {
+            existing.setLngLat(coords);
+            continue;
+          }
+          const el = createBoardElement(props);
+          el.addEventListener("click", (ev) => {
+            ev.stopPropagation();
+            new maplibregl.Popup({ offset: 32 })
+              .setLngLat(coords)
+              .setHTML(placePopupHTML(props))
+              .addTo(map);
+            const place = placesRef.current.find((p) => p.id === id);
+            if (place) onSelectRef.current(place);
+          });
+          markers[id] = new maplibregl.Marker({ element: el })
+            .setLngLat(coords)
+            .addTo(map);
+        }
+        // إزالة العلامات التي لم تعد ظاهرة
+        for (const id of Object.keys(markers)) {
+          if (!present.has(id)) {
+            markers[id].remove();
+            delete markers[id];
+          }
+        }
+      };
+      map.on("render", updateMarkers);
+      updateMarkers();
 
-      // مؤشّر اليد فوق العناصر القابلة للضغط
-      for (const layer of ["clusters", "unclustered-point"]) {
-        map.on("mouseenter", layer, () => {
-          map.getCanvas().style.cursor = "pointer";
-        });
-        map.on("mouseleave", layer, () => {
-          map.getCanvas().style.cursor = "";
-        });
-      }
+      // مؤشّر اليد فوق التجميعات
+      map.on("mouseenter", "clusters", () => {
+        map.getCanvas().style.cursor = "pointer";
+      });
+      map.on("mouseleave", "clusters", () => {
+        map.getCanvas().style.cursor = "";
+      });
 
       setReady(true);
     });
 
     return () => {
+      for (const m of Object.values(placeMarkersRef.current)) m.remove();
+      placeMarkersRef.current = {};
       map.remove();
       mapRef.current = null;
     };
@@ -312,7 +381,10 @@ export default function MapView({
         return { ...next, sources, layers };
       },
     });
-    map.once("style.load", () => applyArabicLabels(map, CUSTOM_LAYER_SET));
+    map.once("style.load", () => {
+      applyArabicLabels(map, CUSTOM_LAYER_SET);
+      thinRoadLines(map);
+    });
   }, [mapStyle, ready]);
 
   // تحديث بيانات النقاط (يشمل الفلترة) للمصدرين

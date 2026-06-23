@@ -36,3 +36,26 @@ body {
   padding: 0.75rem 1rem;
   box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.35);
 }
+
+/* زر إغلاق النافذة — أكبر وأوضح وقابل للضغط، وفي الزاوية اليسرى
+   كي لا يتداخل مع النص العربي المحاذى لليمين. */
+.maplibregl-popup-close-button {
+  inset: 6px auto auto 6px; /* top right bottom left → نضعه أعلى اليسار */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border-radius: 9999px;
+  font-size: 22px;
+  line-height: 1;
+  color: #334155;
+  background: rgba(255, 255, 255, 0.85);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+  transition: background 0.15s, color 0.15s;
+}
+.maplibregl-popup-close-button:hover {
+  background: #ffffff;
+  color: #0f172a;
+}
