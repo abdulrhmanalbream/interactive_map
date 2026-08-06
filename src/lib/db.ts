@@ -50,6 +50,65 @@ async function init(): Promise<Client> {
       "ALTER TABLE places ADD COLUMN image_url TEXT NOT NULL DEFAULT ''",
     );
   }
+  const hasBookable = cols.rows.some((r) => String(r.name) === "bookable");
+  if (!hasBookable) {
+    await client.execute(
+      "ALTER TABLE places ADD COLUMN bookable INTEGER NOT NULL DEFAULT 0",
+    );
+  }
+  const hasPrice = cols.rows.some((r) => String(r.name) === "price");
+  if (!hasPrice) {
+    await client.execute(
+      "ALTER TABLE places ADD COLUMN price REAL NOT NULL DEFAULT 0",
+    );
+  }
+
+  // --- نظام النقل (خطوط وباصات ومحطات) ---
+  await client.execute(`
+    CREATE TABLE IF NOT EXISTS transit_routes (
+      id          TEXT PRIMARY KEY,
+      name        TEXT NOT NULL,
+      name_en     TEXT NOT NULL DEFAULT '',
+      color       TEXT NOT NULL DEFAULT '#2563eb',
+      description TEXT NOT NULL DEFAULT '',
+      path        TEXT NOT NULL,
+      created_at  INTEGER NOT NULL DEFAULT (unixepoch())
+    )
+  `);
+
+  await client.execute(`
+    CREATE TABLE IF NOT EXISTS transit_stops (
+      id          TEXT PRIMARY KEY,
+      name        TEXT NOT NULL,
+      name_en     TEXT NOT NULL DEFAULT '',
+      lng         REAL NOT NULL,
+      lat         REAL NOT NULL,
+      created_at  INTEGER NOT NULL DEFAULT (unixepoch())
+    )
+  `);
+
+  await client.execute(`
+    CREATE TABLE IF NOT EXISTS transit_route_stops (
+      route_id  TEXT NOT NULL,
+      stop_id   TEXT NOT NULL,
+      seq       INTEGER NOT NULL,
+      PRIMARY KEY (route_id, stop_id)
+    )
+  `);
+
+  // --- الحجوزات ---
+  await client.execute(`
+    CREATE TABLE IF NOT EXISTS bookings (
+      id             TEXT PRIMARY KEY,
+      place_id       TEXT NOT NULL,
+      name           TEXT NOT NULL,
+      phone          TEXT NOT NULL,
+      party_size     INTEGER NOT NULL DEFAULT 1,
+      price          REAL NOT NULL DEFAULT 0,
+      reference_code TEXT NOT NULL,
+      created_at     INTEGER NOT NULL DEFAULT (unixepoch())
+    )
+  `);
 
   const count = await client.execute("SELECT COUNT(*) AS c FROM places");
   if (Number(count.rows[0].c) === 0) {

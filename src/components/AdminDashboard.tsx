@@ -13,6 +13,8 @@ import {
   type PlaceCategory,
 } from "@/lib/places";
 import { isShortGoogleMapsLink, parseGoogleMapsUrl } from "@/lib/google-maps-link";
+import TransitAdmin from "./TransitAdmin";
+import BookingsAdmin from "./BookingsAdmin";
 
 // منتقي الموقع يعتمد على MapLibre (window) — نحمّله في المتصفح فقط
 const LocationPicker = dynamic(() => import("./LocationPicker"), {
@@ -34,6 +36,8 @@ type FormState = {
   lat: string;
   description: string;
   imageUrl: string;
+  bookable: boolean;
+  price: string;
 };
 
 const EMPTY_FORM: FormState = {
@@ -44,6 +48,8 @@ const EMPTY_FORM: FormState = {
   lat: String(MEDINA_CENTER[1]),
   description: "",
   imageUrl: "",
+  bookable: false,
+  price: "",
 };
 
 export default function AdminDashboard() {
@@ -54,6 +60,7 @@ export default function AdminDashboard() {
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [tab, setTab] = useState<"places" | "transit" | "bookings">("places");
 
   // إدخال الموقع: رابط جوجل + منتقي الخريطة
   const [linkUrl, setLinkUrl] = useState("");
@@ -144,6 +151,8 @@ export default function AdminDashboard() {
       lat: String(p.lat),
       description: p.description,
       imageUrl: p.imageUrl ?? "",
+      bookable: p.bookable ?? false,
+      price: p.price ? String(p.price) : "",
     });
     setError(null);
     resetLinkState();
@@ -197,6 +206,8 @@ export default function AdminDashboard() {
       lat: Number(form.lat),
       description: form.description,
       imageUrl: form.imageUrl,
+      bookable: form.bookable,
+      price: Number(form.price) || 0,
     };
     const url = editingId ? `/api/places/${editingId}` : "/api/places";
     const method = editingId ? "PATCH" : "POST";
@@ -265,6 +276,34 @@ export default function AdminDashboard() {
         </div>
       </header>
 
+      {/* التبويبات */}
+      <div className="mb-6 flex w-fit gap-1 rounded-lg bg-slate-100 p-1">
+        {(
+          [
+            { id: "places", label: "الأماكن" },
+            { id: "transit", label: "خطوط النقل" },
+            { id: "bookings", label: "الحجوزات" },
+          ] as const
+        ).map((t) => (
+          <button
+            key={t.id}
+            onClick={() => setTab(t.id)}
+            className={`rounded-md px-4 py-1.5 text-sm font-medium transition ${
+              tab === t.id
+                ? "bg-white text-slate-800 shadow-sm"
+                : "text-slate-500 hover:text-slate-700"
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === "transit" && <TransitAdmin />}
+      {tab === "bookings" && <BookingsAdmin />}
+
+      {tab === "places" && (
+        <>
       {/* النموذج */}
       <form
         onSubmit={submit}
@@ -433,6 +472,33 @@ export default function AdminDashboard() {
           />
         </label>
 
+        {/* الحجز */}
+        <div className="col-span-full rounded-lg border border-slate-200 bg-slate-50 p-3">
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={form.bookable}
+              onChange={(e) => set("bookable", e.target.checked)}
+              className="h-4 w-4 rounded border-slate-300"
+            />
+            <span className="font-medium text-slate-600">
+              قابل للحجز من الخريطة
+            </span>
+          </label>
+          {form.bookable && (
+            <label className="mt-2 block text-sm">
+              <span className="mb-1 block text-slate-500">السعر (ريال)</span>
+              <input
+                value={form.price}
+                onChange={(e) => set("price", e.target.value)}
+                inputMode="decimal"
+                placeholder="0"
+                className="w-full max-w-[160px] rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-teal-500"
+              />
+            </label>
+          )}
+        </div>
+
         {/* صورة / لوقو المكان */}
         <div className="col-span-full text-sm">
           <span className="mb-1 block text-slate-500">صورة / لوقو (اختياري)</span>
@@ -570,6 +636,8 @@ export default function AdminDashboard() {
           </ul>
         )}
       </div>
+        </>
+      )}
     </div>
   );
 }

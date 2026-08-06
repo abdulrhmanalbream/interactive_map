@@ -10,6 +10,8 @@ export type PlaceInput = {
   lat: number;
   description?: string;
   imageUrl?: string;
+  bookable?: boolean;
+  price?: number;
 };
 
 /** يتحقّق من جسم الطلب ويعيد مدخلًا صالحًا أو null. */
@@ -24,6 +26,8 @@ export function parsePlaceInput(body: unknown): PlaceInput | null {
   if (!CATEGORY_ORDER.includes(category)) return null;
   if (!Number.isFinite(lng) || lng < -180 || lng > 180) return null;
   if (!Number.isFinite(lat) || lat < -90 || lat > 90) return null;
+  const bookable = b.bookable === true;
+  const priceNum = Number(b.price);
   return {
     name,
     nameEn: typeof b.nameEn === "string" ? b.nameEn.trim() : "",
@@ -32,6 +36,8 @@ export function parsePlaceInput(body: unknown): PlaceInput | null {
     lat,
     description: typeof b.description === "string" ? b.description.trim() : "",
     imageUrl: typeof b.imageUrl === "string" ? b.imageUrl.trim() : "",
+    bookable,
+    price: bookable && Number.isFinite(priceNum) && priceNum > 0 ? priceNum : 0,
   };
 }
 
@@ -47,6 +53,8 @@ function rowToPlace(row: Row): Place {
     lat: Number(row.lat),
     description: String(row.description ?? ""),
     imageUrl: String(row.image_url ?? ""),
+    bookable: Number(row.bookable ?? 0) === 1,
+    price: Number(row.price ?? 0),
   };
 }
 
@@ -71,8 +79,8 @@ export async function createPlace(input: PlaceInput): Promise<Place> {
   const db = await getDb();
   const id = randomUUID();
   await db.execute({
-    sql: `INSERT INTO places (id, name, name_en, category, lng, lat, description, image_url)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    sql: `INSERT INTO places (id, name, name_en, category, lng, lat, description, image_url, bookable, price)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     args: [
       id,
       input.name,
@@ -82,6 +90,8 @@ export async function createPlace(input: PlaceInput): Promise<Place> {
       input.lat,
       input.description ?? "",
       input.imageUrl ?? "",
+      input.bookable ? 1 : 0,
+      input.price ?? 0,
     ],
   });
   return {
@@ -93,6 +103,8 @@ export async function createPlace(input: PlaceInput): Promise<Place> {
     lat: input.lat,
     description: input.description ?? "",
     imageUrl: input.imageUrl ?? "",
+    bookable: input.bookable ?? false,
+    price: input.price ?? 0,
   };
 }
 
@@ -103,7 +115,7 @@ export async function updatePlace(
   const db = await getDb();
   const res = await db.execute({
     sql: `UPDATE places
-          SET name = ?, name_en = ?, category = ?, lng = ?, lat = ?, description = ?, image_url = ?
+          SET name = ?, name_en = ?, category = ?, lng = ?, lat = ?, description = ?, image_url = ?, bookable = ?, price = ?
           WHERE id = ?`,
     args: [
       input.name,
@@ -113,6 +125,8 @@ export async function updatePlace(
       input.lat,
       input.description ?? "",
       input.imageUrl ?? "",
+      input.bookable ? 1 : 0,
+      input.price ?? 0,
       id,
     ],
   });
