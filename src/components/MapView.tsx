@@ -443,7 +443,7 @@ export default function MapView({
 
     map.on("load", () => {
       applyArabicLabels(map, CUSTOM_LAYER_SET);
-      thinRoadLines(map);
+      thinRoadLines(map, map.getStyle().sources?.satellite ? 0.15 : undefined);
       addAppLayers(map);
 
       // التقريب عند الضغط على تجميع (مع ومضة تحديد مؤقتة)
@@ -608,7 +608,7 @@ export default function MapView({
     });
     map.once("style.load", () => {
       applyArabicLabels(map, CUSTOM_LAYER_SET);
-      thinRoadLines(map);
+      thinRoadLines(map, map.getStyle().sources?.satellite ? 0.15 : undefined);
     });
   }, [mapStyle, ready]);
 
