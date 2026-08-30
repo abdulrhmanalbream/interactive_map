@@ -7,12 +7,14 @@ import {
   FaArrowsUpDown,
   FaArrowUpRightFromSquare,
   FaBus,
+  FaCar,
   FaCircleDot,
   FaFire,
   FaHouse,
   FaLocationCrosshairs,
   FaLocationDot,
   FaMagnifyingGlass,
+  FaPersonWalking,
   FaPlus,
   FaRoute,
   FaTicket,
@@ -32,6 +34,13 @@ import { CATEGORY_ICON } from "@/lib/category-icons";
 import { MAP_STYLES } from "@/lib/mapStyle";
 import type { LngLat } from "./MapView";
 import type { TransitRoute, TransitStop } from "@/lib/transit";
+import { nextDeparture } from "@/lib/transit-schedule";
+import type { RouteSegment } from "@/lib/route-segment";
+import {
+  itineraryToSegments,
+  planTransitTrip,
+  type TransitItinerary,
+} from "@/lib/transit-routing";
 import BookingSheet from "./BookingSheet";
 
 // تحميل الخريطة في المتصفح فقط (MapLibre يعتمد على window)
@@ -66,10 +75,12 @@ type Selected = {
   placeId?: string;
   bookable?: boolean;
   price?: number;
+  bookingUrl?: string;
   // محطات/خطوط نقل
   entityId?: string;
   color?: string;
-  routeNames?: string[];
+  routes?: { name: string; color: string; scheduleText: string | null }[];
+  scheduleText?: string | null;
 };
 
 /** نقطة في مخطّط الاتجاهات (بداية/وجهة). */
@@ -81,12 +92,33 @@ type Stop = {
   myLocation?: boolean;
 };
 
+// خريطة/جدول حافلات المدينة الرسمية (هيئة تطوير منطقة المدينة المنورة) — مرجع خارجي
+// للشبكة الكاملة، بما أن خطوطنا المُدارة محليًا نسخة مبسّطة قد لا تغطي كل التفاصيل.
+const OFFICIAL_MADINAH_BUS_MAP_URL = "https://madinahbus.mda.gov.sa/map.html";
+
+type TravelMode = "drive" | "walk" | "bus";
+
+const TRAVEL_MODE_OPTIONS: { id: TravelMode; label: string; icon: typeof FaCar }[] = [
+  { id: "drive", label: "قيادة", icon: FaCar },
+  { id: "walk", label: "مشي", icon: FaPersonWalking },
+  { id: "bus", label: "باص", icon: FaBus },
+];
+
 // خيارات نوع الخريطة المعروضة للمستخدم (مرتبطة بمعرّفات MAP_STYLES)
 const MAP_TYPE_OPTIONS = [
   { id: "liberty", label: "عادي" },
   { id: "positron", label: "رمادي" },
   { id: "satellite", label: "قمر صناعي" },
 ];
+
+/** يبني نصًّا مختصرًا لموعد الرحلة القادمة لخط نقل، أو null إن لم يتوفر جدول. */
+function formatScheduleText(route: TransitRoute): string | null {
+  const dep = nextDeparture(route);
+  if (!dep) return null;
+  if (dep.label) return `القادمة الساعة ${dep.label}`;
+  if (dep.waitMinutes <= 1) return "متوفرة الآن تقريبًا";
+  return `القادمة خلال ~${dep.waitMinutes} د`;
+}
 
 function formatDistance(m: number) {
   return m < 1000 ? `${Math.round(m)} م` : `${(m / 1000).toFixed(1)} كم`;
@@ -176,15 +208,18 @@ export default function MapApp() {
   const [editingStopKey, setEditingStopKey] = useState<string | null>(null);
   const stopCounter = useRef(0);
 
-  const [routeGeometry, setRouteGeometry] = useState<{
-    type: "LineString";
-    coordinates: number[][];
-  } | null>(null);
+  // طريقة التنقّل في مخطّط الاتجاهات: قيادة / مشي / باص
+  const [travelMode, setTravelMode] = useState<TravelMode>("drive");
+  const [routeSegments, setRouteSegments] = useState<RouteSegment[] | null>(
+    null,
+  );
   const [routeInfo, setRouteInfo] = useState<{
     distance: number;
     duration: number;
   } | null>(null);
   const [routing, setRouting] = useState(false);
+  // مخطّط رحلة الباص (مشي + ركوب + مشي) عند travelMode === "bus"
+  const [itinerary, setItinerary] = useState<TransitItinerary | null>(null);
 
   const [showHeatmap, setShowHeatmap] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
@@ -316,21 +351,64 @@ export default function MapApp() {
     if (mode !== "directions") return;
     const valid = stops.filter((s) => s.lng != null && s.lat != null);
     if (valid.length < 2) return;
-    const coords = valid.map((s) => `${s.lng},${s.lat}`).join(";");
     let cancelled = false;
+
     const run = async () => {
       setRouting(true);
       try {
-        const res = await fetch(
-          `/api/directions?coords=${encodeURIComponent(coords)}`,
-        );
-        const d = await res.json();
-        if (cancelled) return;
-        if (d.geometry) {
-          setRouteGeometry(d.geometry);
-          setRouteInfo({ distance: d.distance, duration: d.duration });
+        if (travelMode === "bus") {
+          const origin: [number, number] = [valid[0].lng!, valid[0].lat!];
+          const destination: [number, number] = [
+            valid[valid.length - 1].lng!,
+            valid[valid.length - 1].lat!,
+          ];
+          const trip = planTransitTrip(
+            origin,
+            destination,
+            transitRoutes,
+            transitStops,
+          );
+          if (cancelled) return;
+          if (trip) {
+            setItinerary(trip);
+            setRouteSegments(itineraryToSegments(trip));
+            setRouteInfo({
+              distance: trip.totalDistanceMeters,
+              duration: trip.totalDurationSeconds,
+            });
+            const busRouteIds = trip.legs
+              .filter((l): l is Extract<typeof l, { mode: "bus" }> => l.mode === "bus")
+              .map((l) => l.routeId);
+            if (busRouteIds.length) {
+              setIsolatedRouteIds(new Set(busRouteIds));
+              setShowTransit(true);
+            }
+          } else {
+            setItinerary(null);
+            setRouteSegments(null);
+            setRouteInfo(null);
+            setStatus("لا تتوفر بيانات خطوط نقل قريبة كفاية بين هاتين النقطتين.");
+          }
         } else {
-          setStatus("تعذّر حساب المسار بين النقاط.");
+          const coords = valid.map((s) => `${s.lng},${s.lat}`).join(";");
+          const profile = travelMode === "walk" ? "walking" : "driving";
+          const res = await fetch(
+            `/api/directions?profile=${profile}&coords=${encodeURIComponent(coords)}`,
+          );
+          const d = await res.json();
+          if (cancelled) return;
+          if (d.geometry) {
+            setItinerary(null);
+            setRouteSegments([
+              {
+                mode: travelMode === "walk" ? "walk" : "drive",
+                coordinates: d.geometry.coordinates,
+              },
+            ]);
+            setRouteInfo({ distance: d.distance, duration: d.duration });
+          } else {
+            setStatus("تعذّر حساب المسار بين النقاط.");
+          }
         }
       } catch {
         if (!cancelled) setStatus("خطأ في الاتصال بخدمة المسارات.");
@@ -342,11 +420,23 @@ export default function MapApp() {
     return () => {
       cancelled = true;
     };
-  }, [stops, mode]);
+  }, [stops, mode, travelMode, transitRoutes, transitStops]);
 
   function clearRouteState() {
-    setRouteGeometry(null);
+    setRouteSegments(null);
     setRouteInfo(null);
+    setItinerary(null);
+    setIsolatedRouteIds(null);
+  }
+
+  /** يختار طريقة التنقّل — ويحصر نقاط الاتجاهات في نقطتين فقط عند اختيار الباص. */
+  function selectTravelMode(m: TravelMode) {
+    setTravelMode(m);
+    if (m === "bus") {
+      setStops((list) =>
+        list.length > 2 ? [list[0], list[list.length - 1]] : list,
+      );
+    }
   }
 
   function newStop(init?: Partial<Stop>): Stop {
@@ -409,6 +499,7 @@ export default function MapApp() {
       placeId: place.id,
       bookable: place.bookable,
       price: place.price,
+      bookingUrl: place.bookingUrl,
     });
     setBookingOpen(false);
     setIsolatedRouteIds(null);
@@ -418,9 +509,14 @@ export default function MapApp() {
 
   function handleSelectStop(stop: TransitStop) {
     if (mode === "directions") return;
-    const routeNames = stop.routeIds
-      .map((id) => transitRoutes.find((r) => r.id === id)?.name)
-      .filter((n): n is string => !!n);
+    const routes = stop.routeIds
+      .map((id) => transitRoutes.find((r) => r.id === id))
+      .filter((r): r is TransitRoute => !!r)
+      .map((r) => ({
+        name: r.name,
+        color: r.color,
+        scheduleText: formatScheduleText(r),
+      }));
     setFocus({ lng: stop.lng, lat: stop.lat, zoom: 16 });
     setSelected({
       kind: "stop",
@@ -428,7 +524,7 @@ export default function MapApp() {
       lat: stop.lat,
       label: stop.name,
       entityId: stop.id,
-      routeNames,
+      routes,
     });
     setBookingOpen(false);
     setShowTransit(true);
@@ -448,6 +544,7 @@ export default function MapApp() {
       description: route.description,
       entityId: route.id,
       color: route.color,
+      scheduleText: formatScheduleText(route),
     });
     setBookingOpen(false);
     setShowTransit(true);
@@ -610,7 +707,7 @@ export default function MapApp() {
         focus={focus}
         searchMarker={searchMarker}
         origin={origin}
-        routeGeometry={routeGeometry}
+        routeSegments={routeSegments}
         showHeatmap={showHeatmap}
         selectedKind={selectedKind}
         selectedId={selectedId}
@@ -722,6 +819,18 @@ export default function MapApp() {
               <FaBus />
               النقل
             </button>
+            {showTransit && (
+              <a
+                href={OFFICIAL_MADINAH_BUS_MAP_URL}
+                target="_blank"
+                rel="noreferrer"
+                title="الخريطة الرسمية لحافلات المدينة (هيئة تطوير منطقة المدينة المنورة)"
+                className="flex items-center gap-1 rounded-full px-2.5 py-1 text-xs text-slate-500 transition hover:bg-slate-100"
+              >
+                <FaArrowUpRightFromSquare />
+                الخريطة الرسمية
+              </a>
+            )}
             {styleLoading && (
               <span className="px-1 text-xs text-slate-400">…</span>
             )}
@@ -810,16 +919,25 @@ export default function MapApp() {
               {selected.description || selected.address}
             </p>
           )}
-          {selected.kind === "stop" && selected.routeNames && (
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              {selected.routeNames.length ? (
-                selected.routeNames.map((name) => (
-                  <span
-                    key={name}
-                    className="rounded-full bg-slate-100 px-2 py-1 text-xs text-slate-600"
+          {selected.kind === "stop" && selected.routes && (
+            <div className="mt-2 space-y-1.5">
+              {selected.routes.length ? (
+                selected.routes.map((r) => (
+                  <div
+                    key={r.name}
+                    className="flex items-center justify-between gap-2 rounded-lg bg-slate-100 px-2.5 py-1.5 text-xs text-slate-600"
                   >
-                    {name}
-                  </span>
+                    <span className="flex items-center gap-1.5 font-medium">
+                      <span
+                        className="h-2 w-2 shrink-0 rounded-full"
+                        style={{ backgroundColor: r.color }}
+                      />
+                      {r.name}
+                    </span>
+                    {r.scheduleText && (
+                      <span className="text-slate-400">{r.scheduleText}</span>
+                    )}
+                  </div>
                 ))
               ) : (
                 <span className="text-xs text-slate-400">
@@ -828,6 +946,11 @@ export default function MapApp() {
               )}
             </div>
           )}
+          {selected.kind === "route" && selected.scheduleText && (
+            <p className="mt-2 text-xs font-medium text-slate-500">
+              {selected.scheduleText}
+            </p>
+          )}
 
           {selected.kind === "place" && selected.bookable && (
             <button
@@ -835,8 +958,20 @@ export default function MapApp() {
               className="mt-3 flex w-full items-center justify-center gap-2 rounded-full bg-amber-500 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-amber-400"
             >
               <FaTicket />
-              احجز · {selected.price} ريال
+              احجز{selected.price ? ` · ${selected.price} ريال` : ""}
             </button>
+          )}
+
+          {selected.kind === "place" && selected.bookingUrl && (
+            <a
+              href={selected.bookingUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="mt-2 flex w-full items-center justify-center gap-2 rounded-full border border-amber-300 px-4 py-2.5 text-sm font-medium text-amber-700 transition hover:bg-amber-50"
+            >
+              <FaArrowUpRightFromSquare />
+              حجز عبر موقع الجهة
+            </a>
           )}
 
           {(selected.kind === "place" || selected.kind === "search") && (
@@ -908,6 +1043,29 @@ export default function MapApp() {
             </div>
           </div>
 
+          {/* طريقة التنقّل: قيادة / مشي / باص */}
+          <div className="mb-3 flex gap-1 rounded-full bg-slate-100 p-1">
+            {TRAVEL_MODE_OPTIONS.map((o) => {
+              const Icon = o.icon;
+              const active = travelMode === o.id;
+              return (
+                <button
+                  key={o.id}
+                  type="button"
+                  onClick={() => selectTravelMode(o.id)}
+                  className={`flex flex-1 items-center justify-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition ${
+                    active
+                      ? "bg-white text-slate-800 shadow-sm"
+                      : "text-slate-500 hover:text-slate-700"
+                  }`}
+                >
+                  <Icon />
+                  {o.label}
+                </button>
+              );
+            })}
+          </div>
+
           <div className="space-y-2">
             {stops.map((s, i) => {
               const isFirst = i === 0;
@@ -972,18 +1130,21 @@ export default function MapApp() {
             })}
           </div>
 
-          <button
-            onClick={addStop}
-            className="mt-2 flex items-center gap-2 rounded-full px-2 py-1.5 text-sm font-medium text-teal-700 transition hover:bg-teal-50"
-          >
-            <FaPlus />
-            إضافة وجهة
-          </button>
+          {travelMode !== "bus" && (
+            <button
+              onClick={addStop}
+              className="mt-2 flex items-center gap-2 rounded-full px-2 py-1.5 text-sm font-medium text-teal-700 transition hover:bg-teal-50"
+            >
+              <FaPlus />
+              إضافة وجهة
+            </button>
+          )}
 
           {routing && (
             <p className="mt-2 text-xs text-slate-400">جارٍ حساب المسار…</p>
           )}
-          {routeInfo && (
+
+          {travelMode !== "bus" && routeInfo && (
             <div className="mt-2 flex items-center justify-between rounded-2xl bg-teal-50 px-3 py-2.5 text-sm">
               <span className="font-medium text-teal-800">
                 {formatDistance(routeInfo.distance)} ·{" "}
@@ -996,6 +1157,69 @@ export default function MapApp() {
                 مسح
               </button>
             </div>
+          )}
+
+          {travelMode === "bus" && itinerary && (
+            <div className="mt-2 space-y-1.5">
+              <div className="flex items-center justify-between rounded-2xl bg-sky-50 px-3 py-2.5 text-sm">
+                <span className="font-medium text-sky-800">
+                  {formatDistance(itinerary.totalDistanceMeters)} ·{" "}
+                  {formatDuration(itinerary.totalDurationSeconds)}
+                </span>
+                <button
+                  onClick={clearRouteState}
+                  className="text-xs text-sky-600 hover:underline"
+                >
+                  مسح
+                </button>
+              </div>
+              <ol className="space-y-1.5">
+                {itinerary.legs.map((leg, i) => (
+                  <li
+                    key={i}
+                    className="flex items-start gap-2.5 rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                  >
+                    {leg.mode === "walk" ? (
+                      <FaPersonWalking className="mt-0.5 shrink-0 text-slate-400" />
+                    ) : (
+                      <span
+                        className="mt-1.5 h-3 w-3 shrink-0 rounded-full"
+                        style={{ backgroundColor: leg.color }}
+                      />
+                    )}
+                    <div className="min-w-0 flex-1">
+                      {leg.mode === "walk" ? (
+                        <p className="text-slate-700">
+                          امشِ {formatDistance(leg.distanceMeters)} (
+                          {formatDuration(leg.durationSeconds)})
+                        </p>
+                      ) : (
+                        <>
+                          <p className="font-medium text-slate-800">
+                            {leg.routeName}
+                          </p>
+                          <p className="text-xs text-slate-500">
+                            من {leg.boardStopName} إلى {leg.alightStopName} ·{" "}
+                            {leg.numStops} محطة
+                            {leg.departureLabel
+                              ? ` · القادمة الساعة ${leg.departureLabel}`
+                              : leg.waitSeconds > 0
+                                ? ` · انتظار ~${Math.round(leg.waitSeconds / 60)} د`
+                                : ""}
+                          </p>
+                        </>
+                      )}
+                    </div>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          )}
+
+          {travelMode === "bus" && !itinerary && !routing && (
+            <p className="mt-2 text-xs text-slate-400">
+              اختر نقطة بداية ووجهة لعرض رحلة الباص المقترحة.
+            </p>
           )}
         </div>
       )}

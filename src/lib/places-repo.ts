@@ -12,6 +12,7 @@ export type PlaceInput = {
   imageUrl?: string;
   bookable?: boolean;
   price?: number;
+  bookingUrl?: string;
 };
 
 /** يتحقّق من جسم الطلب ويعيد مدخلًا صالحًا أو null. */
@@ -37,7 +38,9 @@ export function parsePlaceInput(body: unknown): PlaceInput | null {
     description: typeof b.description === "string" ? b.description.trim() : "",
     imageUrl: typeof b.imageUrl === "string" ? b.imageUrl.trim() : "",
     bookable,
+    // السعر اختياري دومًا — 0 تعني "غير محدد" ولا يمنع الحجز
     price: bookable && Number.isFinite(priceNum) && priceNum > 0 ? priceNum : 0,
+    bookingUrl: typeof b.bookingUrl === "string" ? b.bookingUrl.trim() : "",
   };
 }
 
@@ -55,6 +58,7 @@ function rowToPlace(row: Row): Place {
     imageUrl: String(row.image_url ?? ""),
     bookable: Number(row.bookable ?? 0) === 1,
     price: Number(row.price ?? 0),
+    bookingUrl: String(row.booking_url ?? ""),
   };
 }
 
@@ -79,8 +83,8 @@ export async function createPlace(input: PlaceInput): Promise<Place> {
   const db = await getDb();
   const id = randomUUID();
   await db.execute({
-    sql: `INSERT INTO places (id, name, name_en, category, lng, lat, description, image_url, bookable, price)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    sql: `INSERT INTO places (id, name, name_en, category, lng, lat, description, image_url, bookable, price, booking_url)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     args: [
       id,
       input.name,
@@ -92,6 +96,7 @@ export async function createPlace(input: PlaceInput): Promise<Place> {
       input.imageUrl ?? "",
       input.bookable ? 1 : 0,
       input.price ?? 0,
+      input.bookingUrl ?? "",
     ],
   });
   return {
@@ -105,6 +110,7 @@ export async function createPlace(input: PlaceInput): Promise<Place> {
     imageUrl: input.imageUrl ?? "",
     bookable: input.bookable ?? false,
     price: input.price ?? 0,
+    bookingUrl: input.bookingUrl ?? "",
   };
 }
 
@@ -115,7 +121,7 @@ export async function updatePlace(
   const db = await getDb();
   const res = await db.execute({
     sql: `UPDATE places
-          SET name = ?, name_en = ?, category = ?, lng = ?, lat = ?, description = ?, image_url = ?, bookable = ?, price = ?
+          SET name = ?, name_en = ?, category = ?, lng = ?, lat = ?, description = ?, image_url = ?, bookable = ?, price = ?, booking_url = ?
           WHERE id = ?`,
     args: [
       input.name,
@@ -127,6 +133,7 @@ export async function updatePlace(
       input.imageUrl ?? "",
       input.bookable ? 1 : 0,
       input.price ?? 0,
+      input.bookingUrl ?? "",
       id,
     ],
   });

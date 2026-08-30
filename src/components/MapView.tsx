@@ -15,6 +15,7 @@ import {
 import { CATEGORY_ICON } from "@/lib/category-icons";
 import type { PlaceCategory } from "@/lib/places";
 import type { TransitRoute, TransitStop } from "@/lib/transit";
+import type { RouteSegment } from "@/lib/route-segment";
 
 // نخزّن نص الـ SVG لأيقونة كل تصنيف كي لا نُعيد التحويل مع كل علامة.
 const iconSvgCache = new Map<string, string>();
@@ -44,7 +45,8 @@ function ensureRTLPlugin() {
 // طبقاتنا ومصادرنا المخصّصة — نحافظ عليها عند تبديل نمط الخريطة
 const CUSTOM_SOURCE_IDS = ["places", "places-heat", "route", "transit-lines"];
 const CUSTOM_LAYER_IDS = [
-  "route-line",
+  "route-line-solid",
+  "route-line-walk",
   "places-heatmap",
   "transit-lines-layer",
   "transit-lines-hit",
@@ -66,7 +68,7 @@ type Props = {
   focus: { lng: number; lat: number; zoom?: number } | null;
   searchMarker: LngLat | null;
   origin: LngLat | null;
-  routeGeometry: { type: "LineString"; coordinates: number[][] } | null;
+  routeSegments: RouteSegment[] | null;
   showHeatmap: boolean;
   selectedKind: "place" | "stop" | null;
   selectedId: string | null;
@@ -92,6 +94,28 @@ function toFeatureCollection(places: Place[]) {
         image: p.imageUrl ?? "",
       },
     })),
+  };
+}
+
+const SEGMENT_DEFAULT_COLOR: Record<RouteSegment["mode"], string> = {
+  drive: "#1d4ed8",
+  walk: "#475569",
+  bus: "#0ea5e9",
+};
+
+function toSegmentsFeatureCollection(segments: RouteSegment[]) {
+  return {
+    type: "FeatureCollection" as const,
+    features: segments
+      .filter((s) => s.coordinates.length >= 2)
+      .map((s) => ({
+        type: "Feature" as const,
+        geometry: { type: "LineString" as const, coordinates: s.coordinates },
+        properties: {
+          mode: s.mode,
+          color: s.color ?? SEGMENT_DEFAULT_COLOR[s.mode],
+        },
+      })),
   };
 }
 
@@ -211,12 +235,32 @@ function addAppLayers(map: maplibregl.Map) {
   map.addSource("route", { type: "geojson", data: EMPTY_FC });
   map.addSource("transit-lines", { type: "geojson", data: EMPTY_FC });
 
+  // خط المسار (قيادة/باص): طبقة صلبة
   map.addLayer({
-    id: "route-line",
+    id: "route-line-solid",
     type: "line",
     source: "route",
+    filter: ["!=", ["get", "mode"], "walk"],
     layout: { "line-cap": "round", "line-join": "round" },
-    paint: { "line-color": "#1d4ed8", "line-width": 6, "line-opacity": 0.85 },
+    paint: {
+      "line-color": ["get", "color"],
+      "line-width": ["case", ["==", ["get", "mode"], "bus"], 5, 6],
+      "line-opacity": 0.85,
+    },
+  });
+  // خط المسار (مشي): طبقة متقطّعة
+  map.addLayer({
+    id: "route-line-walk",
+    type: "line",
+    source: "route",
+    filter: ["==", ["get", "mode"], "walk"],
+    layout: { "line-cap": "round", "line-join": "round" },
+    paint: {
+      "line-color": ["get", "color"],
+      "line-width": 4,
+      "line-opacity": 0.85,
+      "line-dasharray": [1, 1.6],
+    },
   });
 
   map.addLayer({
@@ -337,7 +381,7 @@ export default function MapView({
   focus,
   searchMarker,
   origin,
-  routeGeometry,
+  routeSegments,
   showHeatmap,
   selectedKind,
   selectedId,
@@ -746,7 +790,7 @@ export default function MapView({
     originMarkerRef.current.setLngLat([origin.lng, origin.lat]).addTo(map);
   }, [origin]);
 
-  // تحديث خط المسار
+  // تحديث خط المسار (قد يتكوّن من عدّة أجزاء: مشي/قيادة/باص)
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !ready) return;
@@ -755,28 +799,24 @@ export default function MapView({
       | undefined;
     if (!source) return;
 
-    if (!routeGeometry) {
+    if (!routeSegments || routeSegments.length === 0) {
       source.setData(EMPTY_FC);
       return;
     }
-    source.setData({
-      type: "Feature",
-      geometry: routeGeometry,
-      properties: {},
-    });
+    source.setData(toSegmentsFeatureCollection(routeSegments));
 
-    const coords = routeGeometry.coordinates;
-    if (coords.length > 1) {
-      const bounds = coords.reduce(
+    const allCoords = routeSegments.flatMap((s) => s.coordinates);
+    if (allCoords.length > 1) {
+      const bounds = allCoords.reduce(
         (b, c) => b.extend(c as [number, number]),
         new maplibregl.LngLatBounds(
-          coords[0] as [number, number],
-          coords[0] as [number, number],
+          allCoords[0] as [number, number],
+          allCoords[0] as [number, number],
         ),
       );
       map.fitBounds(bounds, { padding: 80, duration: 800 });
     }
-  }, [routeGeometry, ready]);
+  }, [routeSegments, ready]);
 
   // تبديل ظهور الخريطة الحرارية
   useEffect(() => {

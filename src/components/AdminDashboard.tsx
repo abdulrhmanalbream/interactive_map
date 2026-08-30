@@ -38,6 +38,7 @@ type FormState = {
   imageUrl: string;
   bookable: boolean;
   price: string;
+  bookingUrl: string;
 };
 
 const EMPTY_FORM: FormState = {
@@ -50,6 +51,7 @@ const EMPTY_FORM: FormState = {
   imageUrl: "",
   bookable: false,
   price: "",
+  bookingUrl: "",
 };
 
 export default function AdminDashboard() {
@@ -153,6 +155,7 @@ export default function AdminDashboard() {
       imageUrl: p.imageUrl ?? "",
       bookable: p.bookable ?? false,
       price: p.price ? String(p.price) : "",
+      bookingUrl: p.bookingUrl ?? "",
     });
     setError(null);
     resetLinkState();
@@ -208,6 +211,7 @@ export default function AdminDashboard() {
       imageUrl: form.imageUrl,
       bookable: form.bookable,
       price: Number(form.price) || 0,
+      bookingUrl: form.bookingUrl,
     };
     const url = editingId ? `/api/places/${editingId}` : "/api/places";
     const method = editingId ? "PATCH" : "POST";
@@ -487,16 +491,30 @@ export default function AdminDashboard() {
           </label>
           {form.bookable && (
             <label className="mt-2 block text-sm">
-              <span className="mb-1 block text-slate-500">السعر (ريال)</span>
+              <span className="mb-1 block text-slate-500">
+                السعر (ريال) — اختياري
+              </span>
               <input
                 value={form.price}
                 onChange={(e) => set("price", e.target.value)}
                 inputMode="decimal"
-                placeholder="0"
-                className="w-full max-w-[160px] rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-teal-500"
+                placeholder="اتركه فارغًا إن لم يكن محددًا"
+                className="w-full max-w-[220px] rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-teal-500"
               />
             </label>
           )}
+          <label className="mt-3 block text-sm">
+            <span className="mb-1 block text-slate-500">
+              رابط حجز خارجي (اختياري) — مثلًا موقع المطعم نفسه
+            </span>
+            <input
+              value={form.bookingUrl}
+              onChange={(e) => set("bookingUrl", e.target.value)}
+              placeholder="https://…"
+              dir="ltr"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-left outline-none focus:border-teal-500"
+            />
+          </label>
         </div>
 
         {/* صورة / لوقو المكان */}

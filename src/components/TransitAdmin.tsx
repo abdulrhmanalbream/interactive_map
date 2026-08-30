@@ -18,6 +18,10 @@ type FormState = {
   nameEn: string;
   color: string;
   description: string;
+  scheduleStart: string;
+  scheduleEnd: string;
+  frequencyMinutes: string;
+  fixedTimesText: string;
 };
 
 const EMPTY_FORM: FormState = {
@@ -25,7 +29,20 @@ const EMPTY_FORM: FormState = {
   nameEn: "",
   color: "#2563eb",
   description: "",
+  scheduleStart: "",
+  scheduleEnd: "",
+  frequencyMinutes: "",
+  fixedTimesText: "",
 };
+
+/** يحوّل نص مواعيد مفصول بفواصل "07:00, 07:30" إلى مصفوفة صالحة فقط. */
+function parseFixedTimesText(text: string): string[] {
+  const TIME_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;
+  return text
+    .split(",")
+    .map((t) => t.trim())
+    .filter((t) => TIME_RE.test(t));
+}
 
 export default function TransitAdmin() {
   const [routes, setRoutes] = useState<TransitRoute[]>([]);
@@ -80,6 +97,10 @@ export default function TransitAdmin() {
       nameEn: route.nameEn,
       color: route.color,
       description: route.description,
+      scheduleStart: route.scheduleStart,
+      scheduleEnd: route.scheduleEnd,
+      frequencyMinutes: route.frequencyMinutes ? String(route.frequencyMinutes) : "",
+      fixedTimesText: route.fixedTimes.join(", "),
     });
     setPath(route.path);
     setError(null);
@@ -124,6 +145,10 @@ export default function TransitAdmin() {
       color: form.color,
       description: form.description,
       path,
+      scheduleStart: form.scheduleStart,
+      scheduleEnd: form.scheduleEnd,
+      frequencyMinutes: Number(form.frequencyMinutes) || 0,
+      fixedTimes: parseFixedTimesText(form.fixedTimesText),
     };
     const url = editingId
       ? `/api/transit/routes/${editingId}`
@@ -175,6 +200,14 @@ export default function TransitAdmin() {
 
   return (
     <div className="space-y-6">
+      <a
+        href="https://madinahbus.mda.gov.sa/map.html"
+        target="_blank"
+        rel="noreferrer"
+        className="flex w-fit items-center gap-2 rounded-lg border border-teal-200 bg-teal-50 px-3 py-2 text-sm text-teal-700 hover:bg-teal-100"
+      >
+        🗺️ الخريطة الرسمية لحافلات المدينة (هيئة تطوير منطقة المدينة المنورة) ↗
+      </a>
       <form
         onSubmit={submit}
         className="grid grid-cols-1 gap-3 rounded-xl border border-slate-200 bg-white p-4 sm:grid-cols-2"
@@ -228,6 +261,58 @@ export default function TransitAdmin() {
             className="w-full rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-teal-500"
           />
         </label>
+
+        <div className="col-span-full rounded-lg border border-slate-200 bg-slate-50 p-3">
+          <span className="mb-2 block text-sm font-medium text-slate-600">
+            جدول الرحلات (اختياري) — استخدم التردد أو المواعيد الثابتة
+          </span>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <label className="text-sm">
+              <span className="mb-1 block text-slate-500">من الساعة</span>
+              <input
+                type="time"
+                value={form.scheduleStart}
+                onChange={(e) => set("scheduleStart", e.target.value)}
+                className="w-full rounded-lg border border-slate-300 px-2 py-2 outline-none focus:border-teal-500"
+              />
+            </label>
+            <label className="text-sm">
+              <span className="mb-1 block text-slate-500">إلى الساعة</span>
+              <input
+                type="time"
+                value={form.scheduleEnd}
+                onChange={(e) => set("scheduleEnd", e.target.value)}
+                className="w-full rounded-lg border border-slate-300 px-2 py-2 outline-none focus:border-teal-500"
+              />
+            </label>
+            <label className="col-span-2 text-sm sm:col-span-1">
+              <span className="mb-1 block text-slate-500">التردد (دقيقة)</span>
+              <input
+                value={form.frequencyMinutes}
+                onChange={(e) => set("frequencyMinutes", e.target.value)}
+                inputMode="numeric"
+                placeholder="مثال: 15"
+                className="w-full rounded-lg border border-slate-300 px-2 py-2 outline-none focus:border-teal-500"
+              />
+            </label>
+          </div>
+          <label className="mt-3 block text-sm">
+            <span className="mb-1 block text-slate-500">
+              أو مواعيد ثابتة (اختياري، مفصولة بفواصل)
+            </span>
+            <input
+              value={form.fixedTimesText}
+              onChange={(e) => set("fixedTimesText", e.target.value)}
+              dir="ltr"
+              placeholder="07:00, 07:30, 08:00"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-left outline-none focus:border-teal-500"
+            />
+          </label>
+          <p className="mt-1 text-xs text-slate-400">
+            إن أدخلت مواعيد ثابتة تُستخدم بدل التردد. اترك كل الحقول فارغة إن لم
+            يتوفر جدول معروف.
+          </p>
+        </div>
 
         <div className="col-span-full">
           <span className="mb-1 block text-sm text-slate-500">
@@ -291,7 +376,16 @@ export default function TransitAdmin() {
                 <div className="min-w-0 flex-1">
                   <div className="truncate font-medium text-slate-800">{r.name}</div>
                   <div className="truncate text-xs text-slate-400">
-                    {r.path.length} نقطة مسار
+                    {r.path.length} نقطة مسار ·{" "}
+                    {r.fixedTimes.length > 0
+                      ? `${r.fixedTimes.length} مواعيد ثابتة`
+                      : r.frequencyMinutes > 0
+                        ? `كل ${r.frequencyMinutes} د${
+                            r.scheduleStart && r.scheduleEnd
+                              ? ` (${r.scheduleStart}–${r.scheduleEnd})`
+                              : ""
+                          }`
+                        : "بلا جدول"}
                   </div>
                 </div>
                 <button

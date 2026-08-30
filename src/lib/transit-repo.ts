@@ -8,6 +8,10 @@ export type RouteInput = {
   color: string;
   description?: string;
   path: [number, number][];
+  scheduleStart?: string;
+  scheduleEnd?: string;
+  frequencyMinutes?: number;
+  fixedTimes?: string[];
 };
 
 export type StopInput = {
@@ -18,6 +22,16 @@ export type StopInput = {
 };
 
 const HEX_RE = /^#[0-9a-fA-F]{6}$/;
+const TIME_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;
+
+function validTime(value: unknown): value is string {
+  return typeof value === "string" && TIME_RE.test(value);
+}
+
+function parseFixedTimes(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((v): v is string => validTime(v));
+}
 
 function validPath(path: unknown): path is [number, number][] {
   if (!Array.isArray(path) || path.length < 2) return false;
@@ -43,6 +57,7 @@ export function parseRouteInput(body: unknown): RouteInput | null {
   if (!name) return null;
   if (!HEX_RE.test(color)) return null;
   if (!validPath(b.path)) return null;
+  const frequencyNum = Number(b.frequencyMinutes);
   return {
     name,
     nameEn: typeof b.nameEn === "string" ? b.nameEn.trim() : "",
@@ -52,6 +67,13 @@ export function parseRouteInput(body: unknown): RouteInput | null {
       const pair = p as [unknown, unknown];
       return [Number(pair[0]), Number(pair[1])] as [number, number];
     }),
+    scheduleStart: validTime(b.scheduleStart) ? b.scheduleStart : "",
+    scheduleEnd: validTime(b.scheduleEnd) ? b.scheduleEnd : "",
+    frequencyMinutes:
+      Number.isFinite(frequencyNum) && frequencyNum > 0
+        ? Math.floor(frequencyNum)
+        : 0,
+    fixedTimes: parseFixedTimes(b.fixedTimes),
   };
 }
 
@@ -75,12 +97,18 @@ export function parseStopInput(body: unknown): StopInput | null {
 
 type Row = Record<string, unknown>;
 
-function rowToRoute(row: Row): TransitRoute {
+function rowToRoute(row: Row, stopIds: string[] = []): TransitRoute {
   let path: [number, number][] = [];
   try {
     path = JSON.parse(String(row.path)) as [number, number][];
   } catch {
     path = [];
+  }
+  let fixedTimes: string[] = [];
+  try {
+    fixedTimes = JSON.parse(String(row.fixed_times ?? "[]")) as string[];
+  } catch {
+    fixedTimes = [];
   }
   return {
     id: String(row.id),
@@ -89,15 +117,40 @@ function rowToRoute(row: Row): TransitRoute {
     color: String(row.color),
     description: String(row.description ?? ""),
     path,
+    stopIds,
+    scheduleStart: String(row.schedule_start ?? ""),
+    scheduleEnd: String(row.schedule_end ?? ""),
+    frequencyMinutes: Number(row.frequency_minutes ?? 0),
+    fixedTimes,
   };
+}
+
+/** يجلب معرّفات محطات كل الخطوط دفعة واحدة، مفهرسة بمعرّف الخط. */
+async function fetchAllRouteStopIds(): Promise<Map<string, string[]>> {
+  const db = await getDb();
+  const res = await db.execute(
+    "SELECT route_id, stop_id FROM transit_route_stops ORDER BY route_id ASC, seq ASC",
+  );
+  const map = new Map<string, string[]>();
+  for (const row of res.rows as Row[]) {
+    const routeId = String(row.route_id);
+    const list = map.get(routeId) ?? [];
+    list.push(String(row.stop_id));
+    map.set(routeId, list);
+  }
+  return map;
 }
 
 export async function listRoutes(): Promise<TransitRoute[]> {
   const db = await getDb();
-  const res = await db.execute(
-    "SELECT * FROM transit_routes ORDER BY created_at ASC, name ASC",
-  );
-  return res.rows.map((r) => rowToRoute(r as Row));
+  const [routesRes, stopIdsByRoute] = await Promise.all([
+    db.execute("SELECT * FROM transit_routes ORDER BY created_at ASC, name ASC"),
+    fetchAllRouteStopIds(),
+  ]);
+  return routesRes.rows.map((r) => {
+    const row = r as Row;
+    return rowToRoute(row, stopIdsByRoute.get(String(row.id)) ?? []);
+  });
 }
 
 export async function getRoute(id: string): Promise<TransitRoute | null> {
@@ -106,15 +159,18 @@ export async function getRoute(id: string): Promise<TransitRoute | null> {
     sql: "SELECT * FROM transit_routes WHERE id = ?",
     args: [id],
   });
-  return res.rows[0] ? rowToRoute(res.rows[0] as Row) : null;
+  if (!res.rows[0]) return null;
+  const stopIds = await getRouteStopIds(id);
+  return rowToRoute(res.rows[0] as Row, stopIds);
 }
 
 export async function createRoute(input: RouteInput): Promise<TransitRoute> {
   const db = await getDb();
   const id = randomUUID();
   await db.execute({
-    sql: `INSERT INTO transit_routes (id, name, name_en, color, description, path)
-          VALUES (?, ?, ?, ?, ?, ?)`,
+    sql: `INSERT INTO transit_routes
+            (id, name, name_en, color, description, path, schedule_start, schedule_end, frequency_minutes, fixed_times)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     args: [
       id,
       input.name,
@@ -122,6 +178,10 @@ export async function createRoute(input: RouteInput): Promise<TransitRoute> {
       input.color,
       input.description ?? "",
       JSON.stringify(input.path),
+      input.scheduleStart ?? "",
+      input.scheduleEnd ?? "",
+      input.frequencyMinutes ?? 0,
+      JSON.stringify(input.fixedTimes ?? []),
     ],
   });
   return {
@@ -131,6 +191,11 @@ export async function createRoute(input: RouteInput): Promise<TransitRoute> {
     color: input.color,
     description: input.description ?? "",
     path: input.path,
+    stopIds: [],
+    scheduleStart: input.scheduleStart ?? "",
+    scheduleEnd: input.scheduleEnd ?? "",
+    frequencyMinutes: input.frequencyMinutes ?? 0,
+    fixedTimes: input.fixedTimes ?? [],
   };
 }
 
@@ -141,7 +206,8 @@ export async function updateRoute(
   const db = await getDb();
   const res = await db.execute({
     sql: `UPDATE transit_routes
-          SET name = ?, name_en = ?, color = ?, description = ?, path = ?
+          SET name = ?, name_en = ?, color = ?, description = ?, path = ?,
+              schedule_start = ?, schedule_end = ?, frequency_minutes = ?, fixed_times = ?
           WHERE id = ?`,
     args: [
       input.name,
@@ -149,6 +215,10 @@ export async function updateRoute(
       input.color,
       input.description ?? "",
       JSON.stringify(input.path),
+      input.scheduleStart ?? "",
+      input.scheduleEnd ?? "",
+      input.frequencyMinutes ?? 0,
+      JSON.stringify(input.fixedTimes ?? []),
       id,
     ],
   });

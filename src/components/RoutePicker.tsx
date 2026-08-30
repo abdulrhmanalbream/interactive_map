@@ -5,6 +5,7 @@ import maplibregl from "maplibre-gl";
 import { applyArabicLabels } from "@/lib/mapStyle";
 import { MEDINA_CENTER } from "@/lib/places";
 import type { TransitStop } from "@/lib/transit";
+import { isShortGoogleMapsLink, parseGoogleMapsUrl } from "@/lib/google-maps-link";
 
 const PICKER_STYLE = "https://tiles.openfreemap.org/styles/bright";
 
@@ -48,6 +49,10 @@ export default function RoutePicker({
   const [pendingStopPoint, setPendingStopPoint] = useState<
     [number, number] | null
   >(null);
+  const [stopLinkUrl, setStopLinkUrl] = useState("");
+  const [stopLinkState, setStopLinkState] = useState<
+    "idle" | "loading" | "error"
+  >("idle");
 
   // مراجع حيّة لتفادي إعادة تثبيت معالجات الأحداث
   const pathRef = useRef(path);
@@ -206,6 +211,44 @@ export default function RoutePicker({
     onPathChange([]);
   }
 
+  /** يستخرج إحداثيات محطة من رابط خرائط جوجل بدل الضغط على الخريطة. */
+  async function extractStopFromLink() {
+    const url = stopLinkUrl.trim();
+    if (!url) return;
+    setStopLinkState("loading");
+
+    const local = parseGoogleMapsUrl(url);
+    if (local) {
+      setPendingStopPoint([local.lng, local.lat]);
+      setStopLinkState("idle");
+      setStopLinkUrl("");
+      if (mapRef.current) {
+        mapRef.current.flyTo({ center: [local.lng, local.lat], zoom: 16 });
+      }
+      return;
+    }
+
+    try {
+      const res = await fetch(
+        `/api/resolve-map-link?url=${encodeURIComponent(url)}`,
+      );
+      const data = await res.json();
+      if (res.ok && Number.isFinite(data.lat) && Number.isFinite(data.lng)) {
+        setPendingStopPoint([Number(data.lng), Number(data.lat)]);
+        setStopLinkState("idle");
+        setStopLinkUrl("");
+        mapRef.current?.flyTo({
+          center: [Number(data.lng), Number(data.lat)],
+          zoom: 16,
+        });
+      } else {
+        setStopLinkState("error");
+      }
+    } catch {
+      setStopLinkState("error");
+    }
+  }
+
   async function confirmNewStop() {
     if (!pendingStopPoint || !newStopName.trim()) return;
     const stop = await onCreateStop(
@@ -277,9 +320,52 @@ export default function RoutePicker({
         <span className="text-xs text-slate-400">
           {mode === "route"
             ? "اضغط على الخريطة لإضافة نقاط المسار بالترتيب."
-            : "اضغط على الخريطة لوضع محطة جديدة."}
+            : "اضغط على الخريطة، أو الصق رابط خرائط جوجل، لوضع محطة جديدة."}
         </span>
       </div>
+
+      {mode === "stop" && (
+        <div className="flex items-center gap-2">
+          <input
+            value={stopLinkUrl}
+            onChange={(e) => {
+              setStopLinkUrl(e.target.value);
+              if (stopLinkState !== "idle") setStopLinkState("idle");
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                extractStopFromLink();
+              }
+            }}
+            placeholder="أو الصق رابط خرائط جوجل لموقع المحطة"
+            dir="ltr"
+            className="min-w-0 flex-1 rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs text-left outline-none focus:border-sky-500"
+          />
+          <button
+            type="button"
+            onClick={extractStopFromLink}
+            disabled={stopLinkState === "loading" || !stopLinkUrl.trim()}
+            className="shrink-0 rounded-lg bg-slate-700 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-slate-600 disabled:opacity-40"
+          >
+            {stopLinkState === "loading" ? "جارٍ…" : "استخراج"}
+          </button>
+        </div>
+      )}
+      {mode === "stop" && stopLinkState === "error" && (
+        <p className="text-xs text-red-600">
+          تعذّر قراءة الإحداثيات من هذا الرابط. جرّب رابطًا آخر أو اضغط على
+          الخريطة مباشرة.
+        </p>
+      )}
+      {mode === "stop" &&
+        stopLinkState === "idle" &&
+        stopLinkUrl.trim() !== "" &&
+        isShortGoogleMapsLink(stopLinkUrl) && (
+          <p className="text-xs text-slate-400">
+            رابط مختصر — سيُفكّ عبر الخادم عند الضغط على «استخراج».
+          </p>
+        )}
 
       <div
         ref={containerRef}

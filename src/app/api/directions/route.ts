@@ -5,11 +5,20 @@ import { NextResponse } from "next/server";
  * يقبل إمّا:
  *   - coords="lng,lat;lng,lat;..."  (وجهات متعددة، نقطتان فأكثر)
  *   - from="lng,lat" & to="lng,lat" (الصيغة القديمة — للتوافق)
+ *   - profile=driving|walking (اختياري — الافتراضي driving)
  * ويعيد خط المسار + المسافة الكليّة + الزمن الكلي.
  *
- * ملاحظة للإنتاج: router.project-osrm.org سيرفر تجريبي بلا ضمان توفّر.
- * عند التوسّع استضِف OSRM ذاتيًا أو استخدم خدمة موجّهات بديلة.
+ * ملاحظة: router.project-osrm.org (السيرفر التجريبي العام) لا يفرّق فعليًا بين
+ * البروفايلات في الرابط — يستخدم دومًا بروفايل القيادة مهما كان المكتوب في العنوان.
+ * لذلك نوجّه "walking" إلى سيرفر FOSSGIS العام البديل الذي يملك بروفايل مشاة حقيقي.
+ * ملاحظة للإنتاج: كلا السيرفرين تجريبيان بلا ضمان توفّر — عند التوسّع استضِف OSRM
+ * ذاتيًا أو استخدم خدمة موجّهات بديلة.
  */
+
+const OSRM_ENDPOINTS: Record<string, string> = {
+  driving: "https://router.project-osrm.org/route/v1/driving",
+  walking: "https://routing.openstreetmap.de/routed-foot/route/v1/foot",
+};
 
 function parseCoord(value: string | null): [number, number] | null {
   if (!value) return null;
@@ -44,10 +53,11 @@ export async function GET(request: Request) {
     );
   }
 
+  const profileParam = searchParams.get("profile") ?? "driving";
+  const base = OSRM_ENDPOINTS[profileParam] ?? OSRM_ENDPOINTS.driving;
+
   const coords = points.map(([lng, lat]) => `${lng},${lat}`).join(";");
-  const url = new URL(
-    `https://router.project-osrm.org/route/v1/driving/${coords}`,
-  );
+  const url = new URL(`${base}/${coords}`);
   url.searchParams.set("overview", "full");
   url.searchParams.set("geometries", "geojson");
 

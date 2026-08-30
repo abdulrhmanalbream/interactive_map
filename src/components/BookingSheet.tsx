@@ -72,9 +72,11 @@ export default function BookingSheet({
                 <FaTicket className="text-amber-500" />
                 حجز {placeName}
               </h2>
-              <p className="mt-1 text-sm text-slate-500">
-                السعر: {price} ريال للحجز الواحد
-              </p>
+              {price > 0 && (
+                <p className="mt-1 text-sm text-slate-500">
+                  السعر: {price} ريال للحجز الواحد
+                </p>
+              )}
             </div>
             <button
               onClick={onClose}

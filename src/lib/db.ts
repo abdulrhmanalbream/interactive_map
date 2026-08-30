@@ -62,6 +62,12 @@ async function init(): Promise<Client> {
       "ALTER TABLE places ADD COLUMN price REAL NOT NULL DEFAULT 0",
     );
   }
+  const hasBookingUrl = cols.rows.some((r) => String(r.name) === "booking_url");
+  if (!hasBookingUrl) {
+    await client.execute(
+      "ALTER TABLE places ADD COLUMN booking_url TEXT NOT NULL DEFAULT ''",
+    );
+  }
 
   // --- نظام النقل (خطوط وباصات ومحطات) ---
   await client.execute(`
@@ -75,6 +81,41 @@ async function init(): Promise<Client> {
       created_at  INTEGER NOT NULL DEFAULT (unixepoch())
     )
   `);
+
+  // ترقية: أضف حقول جدول التوقيت (تكرار أو مواعيد ثابتة) إن لم تكن موجودة
+  const routeCols = await client.execute("PRAGMA table_info(transit_routes)");
+  const hasScheduleStart = routeCols.rows.some(
+    (r) => String(r.name) === "schedule_start",
+  );
+  if (!hasScheduleStart) {
+    await client.execute(
+      "ALTER TABLE transit_routes ADD COLUMN schedule_start TEXT NOT NULL DEFAULT ''",
+    );
+  }
+  const hasScheduleEnd = routeCols.rows.some(
+    (r) => String(r.name) === "schedule_end",
+  );
+  if (!hasScheduleEnd) {
+    await client.execute(
+      "ALTER TABLE transit_routes ADD COLUMN schedule_end TEXT NOT NULL DEFAULT ''",
+    );
+  }
+  const hasFrequency = routeCols.rows.some(
+    (r) => String(r.name) === "frequency_minutes",
+  );
+  if (!hasFrequency) {
+    await client.execute(
+      "ALTER TABLE transit_routes ADD COLUMN frequency_minutes INTEGER NOT NULL DEFAULT 0",
+    );
+  }
+  const hasFixedTimes = routeCols.rows.some(
+    (r) => String(r.name) === "fixed_times",
+  );
+  if (!hasFixedTimes) {
+    await client.execute(
+      "ALTER TABLE transit_routes ADD COLUMN fixed_times TEXT NOT NULL DEFAULT '[]'",
+    );
+  }
 
   await client.execute(`
     CREATE TABLE IF NOT EXISTS transit_stops (
