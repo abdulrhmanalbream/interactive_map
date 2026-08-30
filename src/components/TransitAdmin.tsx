@@ -200,14 +200,24 @@ export default function TransitAdmin() {
 
   return (
     <div className="space-y-6">
-      <a
-        href="https://madinahbus.mda.gov.sa/map.html"
-        target="_blank"
-        rel="noreferrer"
-        className="flex w-fit items-center gap-2 rounded-lg border border-teal-200 bg-teal-50 px-3 py-2 text-sm text-teal-700 hover:bg-teal-100"
-      >
-        🗺️ الخريطة الرسمية لحافلات المدينة (هيئة تطوير منطقة المدينة المنورة) ↗
-      </a>
+      <div className="flex flex-wrap gap-2">
+        <a
+          href="https://madinahbus.mda.gov.sa/map.html"
+          target="_blank"
+          rel="noreferrer"
+          className="flex w-fit items-center gap-2 rounded-lg border border-teal-200 bg-teal-50 px-3 py-2 text-sm text-teal-700 hover:bg-teal-100"
+        >
+          🗺️ الخريطة الرسمية لحافلات المدينة (هيئة تطوير منطقة المدينة المنورة) ↗
+        </a>
+        <a
+          href="https://madinahbus.mda.gov.sa/img/BusTable.pdf"
+          target="_blank"
+          rel="noreferrer"
+          className="flex w-fit items-center gap-2 rounded-lg border border-teal-200 bg-teal-50 px-3 py-2 text-sm text-teal-700 hover:bg-teal-100"
+        >
+          📄 دليل الخطوط وجدول المواعيد (PDF) ↗
+        </a>
+      </div>
       <form
         onSubmit={submit}
         className="grid grid-cols-1 gap-3 rounded-xl border border-slate-200 bg-white p-4 sm:grid-cols-2"

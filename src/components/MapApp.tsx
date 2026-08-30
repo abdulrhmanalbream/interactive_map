@@ -37,6 +37,7 @@ import type { TransitRoute, TransitStop } from "@/lib/transit";
 import {
   nextDeparture,
   nextDepartureAtStop,
+  upcomingDeparturesAtStop,
   type NextDeparture,
 } from "@/lib/transit-schedule";
 import type { RouteSegment } from "@/lib/route-segment";
@@ -83,7 +84,12 @@ type Selected = {
   // محطات/خطوط نقل
   entityId?: string;
   color?: string;
-  routes?: { name: string; color: string; scheduleText: string | null }[];
+  routes?: {
+    name: string;
+    color: string;
+    scheduleText: string | null;
+    upcomingTimes: string[];
+  }[];
   scheduleText?: string | null;
 };
 
@@ -99,6 +105,8 @@ type Stop = {
 // خريطة/جدول حافلات المدينة الرسمية (هيئة تطوير منطقة المدينة المنورة) — مرجع خارجي
 // للشبكة الكاملة، بما أن خطوطنا المُدارة محليًا نسخة مبسّطة قد لا تغطي كل التفاصيل.
 const OFFICIAL_MADINAH_BUS_MAP_URL = "https://madinahbus.mda.gov.sa/map.html";
+// نفس الخريطة الرسمية كملف PDF قابل للتحميل (خطوط + جدول مواعيد الخدمة).
+const OFFICIAL_MADINAH_BUS_PDF_URL = "https://madinahbus.mda.gov.sa/img/BusTable.pdf";
 
 type TravelMode = "drive" | "walk" | "bus";
 
@@ -528,6 +536,7 @@ export default function MapApp() {
         color: r.color,
         // موعد الرحلة القادمة عند هذه المحطة تحديدًا (مع احتساب زمن السير من بداية الخط)
         scheduleText: formatDeparture(nextDepartureAtStop(r, stop.id, stopCoords)),
+        upcomingTimes: upcomingDeparturesAtStop(r, stop.id, stopCoords),
       }));
     setFocus({ lng: stop.lng, lat: stop.lat, zoom: 16 });
     setSelected({
@@ -843,6 +852,18 @@ export default function MapApp() {
                 الخريطة الرسمية
               </a>
             )}
+            {showTransit && (
+              <a
+                href={OFFICIAL_MADINAH_BUS_PDF_URL}
+                target="_blank"
+                rel="noreferrer"
+                title="دليل خطوط وجدول مواعيد حافلات المدينة (PDF)"
+                className="flex items-center gap-1 rounded-full px-2.5 py-1 text-xs text-slate-500 transition hover:bg-slate-100"
+              >
+                <FaArrowUpRightFromSquare />
+                الدليل PDF
+              </a>
+            )}
             {styleLoading && (
               <span className="px-1 text-xs text-slate-400">…</span>
             )}
@@ -937,17 +958,31 @@ export default function MapApp() {
                 selected.routes.map((r) => (
                   <div
                     key={r.name}
-                    className="flex items-center justify-between gap-2 rounded-lg bg-slate-100 px-2.5 py-1.5 text-xs text-slate-600"
+                    className="rounded-lg bg-slate-100 px-2.5 py-1.5 text-xs text-slate-600"
                   >
-                    <span className="flex items-center gap-1.5 font-medium">
-                      <span
-                        className="h-2 w-2 shrink-0 rounded-full"
-                        style={{ backgroundColor: r.color }}
-                      />
-                      {r.name}
-                    </span>
-                    {r.scheduleText && (
-                      <span className="text-slate-400">{r.scheduleText}</span>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="flex items-center gap-1.5 font-medium">
+                        <span
+                          className="h-2 w-2 shrink-0 rounded-full"
+                          style={{ backgroundColor: r.color }}
+                        />
+                        {r.name}
+                      </span>
+                      {r.scheduleText && (
+                        <span className="text-slate-400">{r.scheduleText}</span>
+                      )}
+                    </div>
+                    {r.upcomingTimes.length > 0 && (
+                      <div className="mt-1.5 flex flex-wrap gap-1">
+                        {r.upcomingTimes.map((t, i) => (
+                          <span
+                            key={i}
+                            className="rounded-full bg-white px-2 py-0.5 text-[11px] text-slate-500 ring-1 ring-slate-200"
+                          >
+                            {t}
+                          </span>
+                        ))}
+                      </div>
                     )}
                   </div>
                 ))

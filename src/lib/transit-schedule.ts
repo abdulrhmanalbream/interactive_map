@@ -126,3 +126,74 @@ export function nextDepartureAtStop(
   }
   return { waitMinutes, label };
 }
+
+/**
+ * قائمة بمواعيد الرحلات القادمة (وليس الرحلة القادمة فقط) — تُبنى من المواعيد
+ * الثابتة إن وُجدت، وإلا من التردد. تلتفّ إلى اليوم التالي عند الحاجة.
+ */
+export function upcomingDepartures(
+  route: Pick<
+    TransitRoute,
+    "fixedTimes" | "frequencyMinutes" | "scheduleStart" | "scheduleEnd"
+  >,
+  from: Date = new Date(),
+  count = 6,
+): string[] {
+  const nowMinutes = from.getHours() * 60 + from.getMinutes();
+
+  if (route.fixedTimes.length > 0) {
+    const times = route.fixedTimes
+      .map(timeToMinutes)
+      .filter((t): t is number => t !== null)
+      .sort((a, b) => a - b);
+    if (times.length === 0) return [];
+    const startIdx = times.findIndex((t) => t >= nowMinutes);
+    const ordered =
+      startIdx === -1 ? times : [...times.slice(startIdx), ...times.slice(0, startIdx)];
+    return ordered.slice(0, count).map(minutesToTime);
+  }
+
+  if (route.frequencyMinutes > 0) {
+    const dep = nextDeparture(route, from);
+    if (!dep) return [];
+    const out: string[] = [];
+    let wait = dep.waitMinutes;
+    for (let i = 0; i < count; i++) {
+      out.push(minutesToTime(nowMinutes + wait));
+      wait += route.frequencyMinutes;
+    }
+    return out;
+  }
+
+  return [];
+}
+
+/** نفس upcomingDepartures لكن مُزاحة بزمن السير من بداية الخط حتى محطة مُحدَّدة. */
+export function upcomingDeparturesAtStop(
+  route: Pick<
+    TransitRoute,
+    "fixedTimes" | "frequencyMinutes" | "scheduleStart" | "scheduleEnd" | "stopIds"
+  >,
+  stopId: string,
+  stopCoords: Map<string, [number, number]>,
+  from: Date = new Date(),
+  count = 6,
+): string[] {
+  const idx = route.stopIds.indexOf(stopId);
+  let travelMinutes = 0;
+  if (idx > 0) {
+    let seconds = 0;
+    for (let i = 0; i < idx; i++) {
+      const a = stopCoords.get(route.stopIds[i]);
+      const b = stopCoords.get(route.stopIds[i + 1]);
+      if (!a || !b) continue;
+      seconds += haversineMeters(a, b) / ASSUMED_BUS_SPEED_MPS;
+    }
+    travelMinutes = Math.round(seconds / 60);
+  }
+  return upcomingDepartures(route, from, count).map((t) => {
+    const [h, m] = t.split(":").map(Number);
+    const total = (h * 60 + m + travelMinutes) % (24 * 60);
+    return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
+  });
+}
