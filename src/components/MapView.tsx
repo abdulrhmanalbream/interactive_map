@@ -206,8 +206,8 @@ function applyMarkerVisualState(el: HTMLElement, selected: boolean) {
       : "0 2px 6px rgba(0,0,0,.35)";
   } else {
     const isStop = el.dataset.stop === "1";
-    const base = isStop ? 14 : 32;
-    const grown = isStop ? 22 : 40;
+    const base = isStop ? 9 : 32;
+    const grown = isStop ? 15 : 40;
     const size = selected ? grown : base;
     el.style.width = `${size}px`;
     el.style.height = `${size}px`;
@@ -244,8 +244,8 @@ function addAppLayers(map: maplibregl.Map) {
     layout: { "line-cap": "round", "line-join": "round" },
     paint: {
       "line-color": ["get", "color"],
-      "line-width": ["case", ["==", ["get", "mode"], "bus"], 5, 6],
-      "line-opacity": 0.85,
+      "line-width": ["case", ["==", ["get", "mode"], "bus"], 3.5, 4],
+      "line-opacity": 0.9,
     },
   });
   // خط المسار (مشي): طبقة متقطّعة
@@ -257,7 +257,7 @@ function addAppLayers(map: maplibregl.Map) {
     layout: { "line-cap": "round", "line-join": "round" },
     paint: {
       "line-color": ["get", "color"],
-      "line-width": 4,
+      "line-width": 3,
       "line-opacity": 0.85,
       "line-dasharray": [1, 1.6],
     },
@@ -290,8 +290,8 @@ function addAppLayers(map: maplibregl.Map) {
     layout: { "line-cap": "round", "line-join": "round", visibility: "none" },
     paint: {
       "line-color": ["get", "color"],
-      "line-width": 4,
-      "line-opacity": 0.9,
+      "line-width": 2.2,
+      "line-opacity": 0.85,
     },
   });
 
@@ -688,8 +688,8 @@ export default function MapView({
     const map = mapRef.current;
     if (!map || !ready || !map.getLayer("transit-lines-layer")) return;
     if (!isolatedRouteIds || isolatedRouteIds.size === 0) {
-      map.setPaintProperty("transit-lines-layer", "line-opacity", 0.9);
-      map.setPaintProperty("transit-lines-layer", "line-width", 4);
+      map.setPaintProperty("transit-lines-layer", "line-opacity", 0.85);
+      map.setPaintProperty("transit-lines-layer", "line-width", 2.2);
       return;
     }
     const ids = Array.from(isolatedRouteIds);
@@ -697,13 +697,13 @@ export default function MapView({
       "case",
       ["in", ["get", "id"], ["literal", ids]],
       1,
-      0.15,
+      0,
     ]);
     map.setPaintProperty("transit-lines-layer", "line-width", [
       "case",
       ["in", ["get", "id"], ["literal", ids]],
-      6,
-      3,
+      4,
+      1.5,
     ]);
   }, [isolatedRouteIds, ready]);
 

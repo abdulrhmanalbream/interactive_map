@@ -151,7 +151,7 @@ export const MAP_STYLES: MapStyleDef[] = [
 ];
 
 /** معامل تنحيف عرض خطوط الطرق (0.5 = نصف العرض الأصلي). */
-const ROAD_WIDTH_FACTOR = 0.5;
+const ROAD_WIDTH_FACTOR = 0.35;
 
 /**
  * يُنحّف عرض خطوط الطرق (الأبيض/الأصفر…) في النمط الأساسي كي لا تطغى على الخريطة.

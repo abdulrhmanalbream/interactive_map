@@ -389,17 +389,36 @@ export default function MapApp() {
           if (cancelled) return;
           if (trip) {
             setItinerary(trip);
-            setRouteSegments(itineraryToSegments(trip));
             setRouteInfo({
               distance: trip.totalDistanceMeters,
               duration: trip.totalDurationSeconds,
             });
-            const busRouteIds = trip.legs
-              .filter((l): l is Extract<typeof l, { mode: "bus" }> => l.mode === "bus")
-              .map((l) => l.routeId);
-            if (busRouteIds.length) {
-              setIsolatedRouteIds(new Set(busRouteIds));
-              setShowTransit(true);
+            // خطوط الركوب جاهزة بلون الخط الحقيقي؛ خطوط المشي نستبدلها بمسار
+            // مشي حقيقي (عبر OSRM) بدل خط مستقيم، مع الإبقاء على الأخير عند الفشل
+            const segments = itineraryToSegments(trip);
+            setRouteSegments(segments);
+            const walkLegIdx = trip.legs
+              .map((l, i) => (l.mode === "walk" ? i : -1))
+              .filter((i) => i >= 0);
+            for (const idx of walkLegIdx) {
+              const leg = trip.legs[idx];
+              if (leg.mode !== "walk") continue;
+              fetch(
+                `/api/directions?profile=walking&coords=${leg.from[0]},${leg.from[1]};${leg.to[0]},${leg.to[1]}`,
+              )
+                .then((r) => r.json())
+                .then((d) => {
+                  if (cancelled || !d.geometry) return;
+                  setRouteSegments((prev) => {
+                    if (!prev) return prev;
+                    const next = [...prev];
+                    next[idx] = { mode: "walk", coordinates: d.geometry.coordinates };
+                    return next;
+                  });
+                })
+                .catch(() => {
+                  /* نُبقي الخط المستقيم عند فشل الجلب */
+                });
             }
           } else {
             setItinerary(null);
@@ -641,6 +660,10 @@ export default function MapApp() {
     setEditingStopKey(dest ? null : end.key);
     setQuery("");
     setResults([]);
+    // نخفي طبقة كل خطوط النقل أثناء الاتجاهات — يظهر فقط الخط المستخدَم فعليًا
+    // عبر مصدر "route" (انظر تأثير حساب المسار)
+    setShowTransit(false);
+    setIsolatedRouteIds(null);
 
     // محاولة تعبئة نقطة البداية بموقع المستخدم إن لم تكن محددة
     if (start.lng == null) {
@@ -729,6 +752,16 @@ export default function MapApp() {
   const googleMapsLink = selected
     ? `https://www.google.com/maps/search/?api=1&query=${selected.lat},${selected.lng}`
     : "#";
+
+  // رابط بدء الرحلة الفعلية (ملاحة حيّة) عبر خرائط جوجل — بنفس النقطتين والوضع
+  const googleMapsDirectionsLink = (() => {
+    const valid = stops.filter((s) => s.lng != null && s.lat != null);
+    if (valid.length < 2) return null;
+    const o = valid[0];
+    const d = valid[valid.length - 1];
+    const gMode = travelMode === "walk" ? "walking" : travelMode === "bus" ? "transit" : "driving";
+    return `https://www.google.com/maps/dir/?api=1&origin=${o.lat},${o.lng}&destination=${d.lat},${d.lng}&travelmode=${gMode}`;
+  })();
 
   return (
     <div className="relative h-full w-full" dir="rtl">
@@ -1319,6 +1352,18 @@ export default function MapApp() {
             <p className="mt-2 text-xs text-slate-400">
               اختر نقطة بداية ووجهة لعرض رحلة الباص المقترحة.
             </p>
+          )}
+
+          {googleMapsDirectionsLink && (routeInfo || itinerary) && (
+            <a
+              href={googleMapsDirectionsLink}
+              target="_blank"
+              rel="noreferrer"
+              className="mt-3 flex w-full items-center justify-center gap-2 rounded-full bg-blue-600 px-4 py-3 text-sm font-bold text-white shadow-lg transition hover:bg-blue-500"
+            >
+              <FaLocationCrosshairs />
+              بدء الرحلة (خرائط جوجل)
+            </a>
           )}
         </div>
       )}
