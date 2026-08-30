@@ -91,6 +91,8 @@ type Selected = {
     upcomingTimes: string[];
   }[];
   scheduleText?: string | null;
+  // محطات خط النقل بترتيبها — تُعرض كقائمة زمنية عند اختيار خط
+  routeStops?: { name: string; scheduleText: string | null }[];
 };
 
 /** نقطة في مخطّط الاتجاهات (بداية/وجهة). */
@@ -557,6 +559,17 @@ export default function MapApp() {
   function handleSelectRoute(route: TransitRoute) {
     if (mode === "directions") return;
     const mid = route.path[Math.floor(route.path.length / 2)];
+    const stopCoords = new Map<string, [number, number]>(
+      transitStops.map((s) => [s.id, [s.lng, s.lat]]),
+    );
+    const stopById = new Map(transitStops.map((s) => [s.id, s]));
+    const routeStops = route.stopIds
+      .map((id) => stopById.get(id))
+      .filter((s): s is TransitStop => !!s)
+      .map((s) => ({
+        name: s.name,
+        scheduleText: formatDeparture(nextDepartureAtStop(route, s.id, stopCoords)),
+      }));
     setSelected({
       kind: "route",
       lng: mid?.[0] ?? MEDINA_CENTER[0],
@@ -566,6 +579,7 @@ export default function MapApp() {
       entityId: route.id,
       color: route.color,
       scheduleText: formatScheduleText(route),
+      routeStops,
     });
     setBookingOpen(false);
     setShowTransit(true);
@@ -997,6 +1011,44 @@ export default function MapApp() {
             <p className="mt-2 text-xs font-medium text-slate-500">
               {selected.scheduleText}
             </p>
+          )}
+
+          {selected.kind === "route" && selected.routeStops && selected.routeStops.length > 0 && (
+            <div className="mt-3 max-h-64 overflow-y-auto rounded-2xl border border-slate-100 py-1">
+              <ol>
+                {selected.routeStops.map((s, i) => (
+                  <li key={i} className="relative flex items-center gap-3 px-3 py-1.5">
+                    {/* الخط الزمني الرأسي + نقطة المحطة */}
+                    <span className="relative flex w-3 shrink-0 flex-col items-center self-stretch">
+                      {i > 0 && (
+                        <span
+                          className="absolute top-0 h-1/2 w-0.5 -translate-y-full"
+                          style={{ backgroundColor: selected.color ?? "#2563eb" }}
+                        />
+                      )}
+                      <span
+                        className="z-10 h-2 w-2 shrink-0 rounded-full ring-2 ring-white"
+                        style={{ backgroundColor: selected.color ?? "#2563eb" }}
+                      />
+                      {i < selected.routeStops!.length - 1 && (
+                        <span
+                          className="absolute bottom-0 h-1/2 w-0.5 translate-y-full"
+                          style={{ backgroundColor: selected.color ?? "#2563eb" }}
+                        />
+                      )}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate text-sm text-slate-700">
+                      {s.name}
+                    </span>
+                    {s.scheduleText && (
+                      <span className="shrink-0 text-xs text-slate-400">
+                        {s.scheduleText}
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ol>
+            </div>
           )}
 
           {selected.kind === "place" && selected.bookable && (
