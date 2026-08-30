@@ -34,7 +34,11 @@ import { CATEGORY_ICON } from "@/lib/category-icons";
 import { MAP_STYLES } from "@/lib/mapStyle";
 import type { LngLat } from "./MapView";
 import type { TransitRoute, TransitStop } from "@/lib/transit";
-import { nextDeparture } from "@/lib/transit-schedule";
+import {
+  nextDeparture,
+  nextDepartureAtStop,
+  type NextDeparture,
+} from "@/lib/transit-schedule";
 import type { RouteSegment } from "@/lib/route-segment";
 import {
   itineraryToSegments,
@@ -111,13 +115,17 @@ const MAP_TYPE_OPTIONS = [
   { id: "satellite", label: "قمر صناعي" },
 ];
 
-/** يبني نصًّا مختصرًا لموعد الرحلة القادمة لخط نقل، أو null إن لم يتوفر جدول. */
-function formatScheduleText(route: TransitRoute): string | null {
-  const dep = nextDeparture(route);
+/** يحوّل نتيجة موعد الرحلة القادمة إلى نص مختصر، أو null إن لم يتوفر جدول. */
+function formatDeparture(dep: NextDeparture | null): string | null {
   if (!dep) return null;
   if (dep.label) return `القادمة الساعة ${dep.label}`;
   if (dep.waitMinutes <= 1) return "متوفرة الآن تقريبًا";
   return `القادمة خلال ~${dep.waitMinutes} د`;
+}
+
+/** نصّ موعد الرحلة القادمة لخط نقل من بداية مساره. */
+function formatScheduleText(route: TransitRoute): string | null {
+  return formatDeparture(nextDeparture(route));
 }
 
 function formatDistance(m: number) {
@@ -509,13 +517,17 @@ export default function MapApp() {
 
   function handleSelectStop(stop: TransitStop) {
     if (mode === "directions") return;
+    const stopCoords = new Map<string, [number, number]>(
+      transitStops.map((s) => [s.id, [s.lng, s.lat]]),
+    );
     const routes = stop.routeIds
       .map((id) => transitRoutes.find((r) => r.id === id))
       .filter((r): r is TransitRoute => !!r)
       .map((r) => ({
         name: r.name,
         color: r.color,
-        scheduleText: formatScheduleText(r),
+        // موعد الرحلة القادمة عند هذه المحطة تحديدًا (مع احتساب زمن السير من بداية الخط)
+        scheduleText: formatDeparture(nextDepartureAtStop(r, stop.id, stopCoords)),
       }));
     setFocus({ lng: stop.lng, lat: stop.lat, zoom: 16 });
     setSelected({

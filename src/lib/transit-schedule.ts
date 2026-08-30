@@ -75,3 +75,54 @@ export function hasSchedule(
 ): boolean {
   return route.fixedTimes.length > 0 || route.frequencyMinutes > 0;
 }
+
+const ASSUMED_BUS_SPEED_MPS = 6.5; // ~23 كم/س — تقدير متوسط يشمل الوقوف
+
+function haversineMeters(a: [number, number], b: [number, number]): number {
+  const R = 6371000;
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const dLat = toRad(b[1] - a[1]);
+  const dLng = toRad(b[0] - a[0]);
+  const lat1 = toRad(a[1]);
+  const lat2 = toRad(b[1]);
+  const h =
+    Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
+/**
+ * موعد وصول الرحلة القادمة عند محطة مُحدَّدة على الخط (لا عند بداية الخط فقط) —
+ * يضيف زمن السير المقدَّر من أول محطة حتى هذه المحطة إلى موعد انطلاق الخط.
+ * يعيد null إن لم يكن للخط جدول، أو لم تُعرف إحداثيات المحطات اللازمة.
+ */
+export function nextDepartureAtStop(
+  route: Pick<
+    TransitRoute,
+    "fixedTimes" | "frequencyMinutes" | "scheduleStart" | "scheduleEnd" | "stopIds"
+  >,
+  stopId: string,
+  stopCoords: Map<string, [number, number]>,
+  from: Date = new Date(),
+): NextDeparture | null {
+  const base = nextDeparture(route, from);
+  if (!base) return null;
+  const idx = route.stopIds.indexOf(stopId);
+  if (idx <= 0) return base;
+
+  let seconds = 0;
+  for (let i = 0; i < idx; i++) {
+    const a = stopCoords.get(route.stopIds[i]);
+    const b = stopCoords.get(route.stopIds[i + 1]);
+    if (!a || !b) continue;
+    seconds += haversineMeters(a, b) / ASSUMED_BUS_SPEED_MPS;
+  }
+  const travelMinutes = Math.round(seconds / 60);
+  const waitMinutes = base.waitMinutes + travelMinutes;
+  let label: string | null = null;
+  if (base.label) {
+    const [h, m] = base.label.split(":").map(Number);
+    const total = (h * 60 + m + travelMinutes) % (24 * 60);
+    label = `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
+  }
+  return { waitMinutes, label };
+}
