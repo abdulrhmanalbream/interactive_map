@@ -85,7 +85,7 @@ export function buildHybridStyle(): Promise<StyleSpecification> {
           const paint = {
             ...(l.paint as Record<string, unknown> | undefined),
           } as Record<string, unknown>;
-          paint["line-opacity"] = scaleNumeric(paint["line-opacity"], 0.8, 1);
+          paint["line-opacity"] = scaleNumeric(paint["line-opacity"], 0.45, 1);
           return { ...l, paint } as unknown as typeof l;
         });
       return {

@@ -46,6 +46,7 @@ function ensureRTLPlugin() {
 const CUSTOM_SOURCE_IDS = ["places", "places-heat", "route", "transit-lines"];
 const CUSTOM_LAYER_IDS = [
   "route-line-solid",
+  "route-line-walk-halo",
   "route-line-walk",
   "places-heatmap",
   "transit-lines-layer",
@@ -99,7 +100,7 @@ function toFeatureCollection(places: Place[]) {
 
 const SEGMENT_DEFAULT_COLOR: Record<RouteSegment["mode"], string> = {
   drive: "#1d4ed8",
-  walk: "#475569",
+  walk: "#0d9488",
   bus: "#0ea5e9",
 };
 
@@ -248,6 +249,19 @@ function addAppLayers(map: maplibregl.Map) {
       "line-opacity": 0.9,
     },
   });
+  // هالة بيضاء تحت خط المشي لضمان تباين واضح فوق أي خلفية (خرائط أو قمر صناعي)
+  map.addLayer({
+    id: "route-line-walk-halo",
+    type: "line",
+    source: "route",
+    filter: ["==", ["get", "mode"], "walk"],
+    layout: { "line-cap": "round", "line-join": "round" },
+    paint: {
+      "line-color": "#ffffff",
+      "line-width": 5.5,
+      "line-opacity": 0.9,
+    },
+  });
   // خط المسار (مشي): طبقة متقطّعة
   map.addLayer({
     id: "route-line-walk",
@@ -258,7 +272,7 @@ function addAppLayers(map: maplibregl.Map) {
     paint: {
       "line-color": ["get", "color"],
       "line-width": 3,
-      "line-opacity": 0.85,
+      "line-opacity": 1,
       "line-dasharray": [1, 1.6],
     },
   });
@@ -443,7 +457,7 @@ export default function MapView({
 
     map.on("load", () => {
       applyArabicLabels(map, CUSTOM_LAYER_SET);
-      thinRoadLines(map, map.getStyle().sources?.satellite ? 0.15 : undefined);
+      thinRoadLines(map, map.getStyle().sources?.satellite ? 0.1 : undefined);
       addAppLayers(map);
 
       // التقريب عند الضغط على تجميع (مع ومضة تحديد مؤقتة)
@@ -608,7 +622,7 @@ export default function MapView({
     });
     map.once("style.load", () => {
       applyArabicLabels(map, CUSTOM_LAYER_SET);
-      thinRoadLines(map, map.getStyle().sources?.satellite ? 0.15 : undefined);
+      thinRoadLines(map, map.getStyle().sources?.satellite ? 0.1 : undefined);
     });
   }, [mapStyle, ready]);
 
