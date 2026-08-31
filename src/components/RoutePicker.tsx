@@ -51,7 +51,7 @@ export default function RoutePicker({
   >(null);
   const [stopLinkUrl, setStopLinkUrl] = useState("");
   const [stopLinkState, setStopLinkState] = useState<
-    "idle" | "loading" | "error"
+    "idle" | "loading" | "approx" | "error"
   >("idle");
 
   // مراجع حيّة لتفادي إعادة تثبيت معالجات الأحداث
@@ -220,7 +220,7 @@ export default function RoutePicker({
     const local = parseGoogleMapsUrl(url);
     if (local) {
       setPendingStopPoint([local.lng, local.lat]);
-      setStopLinkState("idle");
+      setStopLinkState(local.precise ? "idle" : "approx");
       setStopLinkUrl("");
       if (mapRef.current) {
         mapRef.current.flyTo({ center: [local.lng, local.lat], zoom: 16 });
@@ -235,7 +235,7 @@ export default function RoutePicker({
       const data = await res.json();
       if (res.ok && Number.isFinite(data.lat) && Number.isFinite(data.lng)) {
         setPendingStopPoint([Number(data.lng), Number(data.lat)]);
-        setStopLinkState("idle");
+        setStopLinkState(data.precise === false ? "approx" : "idle");
         setStopLinkUrl("");
         mapRef.current?.flyTo({
           center: [Number(data.lng), Number(data.lat)],
@@ -351,6 +351,12 @@ export default function RoutePicker({
             {stopLinkState === "loading" ? "جارٍ…" : "استخراج"}
           </button>
         </div>
+      )}
+      {mode === "stop" && stopLinkState === "approx" && (
+        <p className="text-xs text-amber-600">
+          ⚠ الإحداثيات من مركز الكاميرا فقط، قد تنحرف عن الموقع الفعلي بعشرات
+          الأمتار — تحقّق من موضع الدبوس على الخريطة وعدّله بالسحب عند الحاجة.
+        </p>
       )}
       {mode === "stop" && stopLinkState === "error" && (
         <p className="text-xs text-red-600">

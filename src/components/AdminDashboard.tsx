@@ -26,7 +26,7 @@ const LocationPicker = dynamic(() => import("./LocationPicker"), {
   ),
 });
 
-type LinkState = "idle" | "loading" | "ok" | "error";
+type LinkState = "idle" | "loading" | "ok" | "approx" | "error";
 
 type FormState = {
   name: string;
@@ -176,7 +176,7 @@ export default function AdminDashboard() {
     const local = parseGoogleMapsUrl(url);
     if (local) {
       setCoords(local.lng, local.lat);
-      setLinkState("ok");
+      setLinkState(local.precise ? "ok" : "approx");
       return;
     }
 
@@ -188,7 +188,7 @@ export default function AdminDashboard() {
       const data = await res.json();
       if (res.ok && Number.isFinite(data.lat) && Number.isFinite(data.lng)) {
         setCoords(Number(data.lng), Number(data.lat));
-        setLinkState("ok");
+        setLinkState(data.precise === false ? "approx" : "ok");
       } else {
         setLinkState("error");
       }
@@ -390,7 +390,13 @@ export default function AdminDashboard() {
             </div>
             {linkState === "ok" && (
               <span className="mt-1 block text-xs text-teal-600">
-                ✓ تم استخراج الإحداثيات من الرابط.
+                ✓ تم استخراج الإحداثيات من الرابط (دقيقة — من موضع الدبوس نفسه).
+              </span>
+            )}
+            {linkState === "approx" && (
+              <span className="mt-1 block text-xs text-amber-600">
+                ⚠ الإحداثيات من مركز الكاميرا فقط، قد تنحرف عن الموقع الفعلي
+                بعشرات الأمتار — تحقّق منها على الخريطة أدناه وعدّلها عند الحاجة.
               </span>
             )}
             {linkState === "error" && (

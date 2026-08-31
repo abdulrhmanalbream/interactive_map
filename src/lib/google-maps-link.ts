@@ -12,7 +12,17 @@
  * تتبّع التحويل عبر الخادم — استخدم isShortGoogleMapsLink ثم نقطة API لفكّها.
  */
 
-export type LatLng = { lat: number; lng: number };
+export type LatLng = {
+  lat: number;
+  lng: number;
+  /**
+   * false فقط لمصدر مركز الكاميرا (@lat,lng) — قد ينحرف عن موضع الدبوس الفعلي
+   * بعشرات الأمتار إن لم يكن الدبوس في منتصف الشاشة عند نسخ الرابط. كل
+   * المصادر الأخرى (دبوس !3d!4d، معاملات الاستعلام، مسار /place، إحداثيات
+   * ملصقة) هي إحداثيات محدَّدة عمدًا ودقيقة.
+   */
+  precise: boolean;
+};
 
 function valid(lat: number, lng: number): boolean {
   return (
@@ -38,7 +48,7 @@ export function parseGoogleMapsUrl(raw: string): LatLng | null {
   if (pin) {
     const lat = Number(pin[1]);
     const lng = Number(pin[2]);
-    if (valid(lat, lng)) return { lat, lng };
+    if (valid(lat, lng)) return { lat, lng, precise: true };
   }
 
   // 2) معاملات الاستعلام: q / query / ll / destination / center / daddr / saddr
@@ -51,15 +61,16 @@ export function parseGoogleMapsUrl(raw: string): LatLng | null {
   if (param) {
     const lat = Number(param[1]);
     const lng = Number(param[2]);
-    if (valid(lat, lng)) return { lat, lng };
+    if (valid(lat, lng)) return { lat, lng, precise: true };
   }
 
-  // 3) مركز الكاميرا في الرابط: @<lat>,<lng>
+  // 3) مركز الكاميرا في الرابط: @<lat>,<lng> — تقريبي فقط، فقد لا يطابق موضع
+  // الدبوس الفعلي إن لم يكن مُتوسِّطًا للشاشة عند نسخ الرابط (فرق شائع بعشرات الأمتار)
   const at = input.match(new RegExp(`@${NUM},${NUM}`));
   if (at) {
     const lat = Number(at[1]);
     const lng = Number(at[2]);
-    if (valid(lat, lng)) return { lat, lng };
+    if (valid(lat, lng)) return { lat, lng, precise: false };
   }
 
   // 4) مسار يحوي الإحداثيات مباشرة: /place|search|dir/<lat>,<lng>
@@ -67,7 +78,7 @@ export function parseGoogleMapsUrl(raw: string): LatLng | null {
   if (path) {
     const lat = Number(path[1]);
     const lng = Number(path[2]);
-    if (valid(lat, lng)) return { lat, lng };
+    if (valid(lat, lng)) return { lat, lng, precise: true };
   }
 
   // 5) إحداثيات مجردة ملصقة بالكامل: "lat, lng"
@@ -75,7 +86,7 @@ export function parseGoogleMapsUrl(raw: string): LatLng | null {
   if (bare) {
     const lat = Number(bare[1]);
     const lng = Number(bare[2]);
-    if (valid(lat, lng)) return { lat, lng };
+    if (valid(lat, lng)) return { lat, lng, precise: true };
   }
 
   return null;

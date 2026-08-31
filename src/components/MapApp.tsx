@@ -239,6 +239,15 @@ export default function MapApp() {
   // مخطّط رحلة الباص (مشي + ركوب + مشي) عند travelMode === "bus"
   const [itinerary, setItinerary] = useState<TransitItinerary | null>(null);
 
+  // اختيار مُعلَّق: نقرة على مكان/محطة/خط أثناء الاتجاهات بلا حقل نشط —
+  // نطلب تأكيد الخروج من الاتجاهات قبل تطبيقه
+  const [pendingSelection, setPendingSelection] = useState<
+    | { kind: "place"; payload: Place }
+    | { kind: "stop"; payload: TransitStop }
+    | { kind: "route"; payload: TransitRoute }
+    | null
+  >(null);
+
   const [showHeatmap, setShowHeatmap] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
 
@@ -523,7 +532,15 @@ export default function MapApp() {
       setResults([]);
       return;
     }
-    if (mode === "directions") return; // تجاهل النقر دون حقل نشط
+    // داخل الاتجاهات بلا حقل نشط: اسأل قبل إلغاء المسار الحالي
+    if (mode === "directions") {
+      setPendingSelection({ kind: "place", payload: place });
+      return;
+    }
+    applySelectPlace(place);
+  }
+
+  function applySelectPlace(place: Place) {
     setFocus({ lng: place.lng, lat: place.lat, zoom: 16 });
     setSelected({
       kind: "place",
@@ -545,7 +562,28 @@ export default function MapApp() {
   }
 
   function handleSelectStop(stop: TransitStop) {
-    if (mode === "directions") return;
+    // داخل الاتجاهات مع حقل نشط: استخدم المحطة نفسها كنقطة بداية/وجهة —
+    // هذا يتيح اختيار أي محطة (منصة باص) مباشرة من الخريطة
+    if (mode === "directions" && editingStopKey) {
+      updateStop(editingStopKey, {
+        label: stop.name,
+        lng: stop.lng,
+        lat: stop.lat,
+        myLocation: false,
+      });
+      setEditingStopKey(null);
+      setQuery("");
+      setResults([]);
+      return;
+    }
+    if (mode === "directions") {
+      setPendingSelection({ kind: "stop", payload: stop });
+      return;
+    }
+    applySelectStop(stop);
+  }
+
+  function applySelectStop(stop: TransitStop) {
     const stopCoords = new Map<string, [number, number]>(
       transitStops.map((s) => [s.id, [s.lng, s.lat]]),
     );
@@ -576,7 +614,14 @@ export default function MapApp() {
   }
 
   function handleSelectRoute(route: TransitRoute) {
-    if (mode === "directions") return;
+    if (mode === "directions") {
+      setPendingSelection({ kind: "route", payload: route });
+      return;
+    }
+    applySelectRoute(route);
+  }
+
+  function applySelectRoute(route: TransitRoute) {
     const mid = route.path[Math.floor(route.path.length / 2)];
     const stopCoords = new Map<string, [number, number]>(
       transitStops.map((s) => [s.id, [s.lng, s.lat]]),
@@ -686,6 +731,20 @@ export default function MapApp() {
     setResults([]);
   }
 
+  /** يؤكّد الخروج من الاتجاهات لعرض الاختيار المُعلَّق (مكان/محطة/خط). */
+  function confirmPendingSelection() {
+    if (!pendingSelection) return;
+    exitDirections();
+    if (pendingSelection.kind === "place") applySelectPlace(pendingSelection.payload);
+    else if (pendingSelection.kind === "stop") applySelectStop(pendingSelection.payload);
+    else applySelectRoute(pendingSelection.payload);
+    setPendingSelection(null);
+  }
+
+  function cancelPendingSelection() {
+    setPendingSelection(null);
+  }
+
   function startEditStop(key: string) {
     setEditingStopKey(key);
     setQuery("");
@@ -738,6 +797,15 @@ export default function MapApp() {
     const validCount = next.filter((s) => s.lng != null && s.lat != null).length;
     if (validCount < 2) clearRouteState();
     if (editingStopKey === key) setEditingStopKey(null);
+  }
+
+  /** يفرّغ نقطة (بداية/وجهة) دون حذفها من القائمة — يُستخدم عند وجود نقطتين فقط. */
+  function clearStop(key: string) {
+    updateStop(key, { label: "", lng: null, lat: null, myLocation: false });
+    clearRouteState();
+    setEditingStopKey(key);
+    setQuery("");
+    setResults([]);
   }
 
   function swapStops() {
@@ -1241,7 +1309,7 @@ export default function MapApp() {
                         <FaLocationCrosshairs />
                       </button>
                     )}
-                    {stops.length > 2 && (
+                    {stops.length > 2 ? (
                       <button
                         onClick={() => removeStop(s.key)}
                         aria-label="حذف الوجهة"
@@ -1249,6 +1317,16 @@ export default function MapApp() {
                       >
                         <FaXmark />
                       </button>
+                    ) : (
+                      s.label && (
+                        <button
+                          onClick={() => clearStop(s.key)}
+                          aria-label="مسح الحقل"
+                          className="shrink-0 text-slate-300 hover:text-rose-500"
+                        >
+                          <FaXmark />
+                        </button>
+                      )
                     )}
                   </div>
                   {isEditing && (
@@ -1365,6 +1443,27 @@ export default function MapApp() {
               بدء الرحلة (خرائط جوجل)
             </a>
           )}
+        </div>
+      )}
+
+      {/* تأكيد الخروج من الاتجاهات عند اختيار مكان/محطة/خط آخر */}
+      {pendingSelection && (
+        <div className="absolute inset-x-3 bottom-24 z-50 mx-auto flex max-w-sm items-center gap-3 rounded-2xl bg-slate-900 px-4 py-3 text-sm text-white shadow-2xl sm:inset-x-auto sm:right-4">
+          <span className="flex-1">
+            الخروج من الاتجاهات لعرض «{pendingSelection.payload.name}»؟
+          </span>
+          <button
+            onClick={confirmPendingSelection}
+            className="shrink-0 rounded-full bg-white px-3 py-1.5 text-xs font-bold text-slate-900 hover:bg-slate-100"
+          >
+            نعم
+          </button>
+          <button
+            onClick={cancelPendingSelection}
+            className="shrink-0 rounded-full border border-white/30 px-3 py-1.5 text-xs text-white hover:bg-white/10"
+          >
+            إلغاء
+          </button>
         </div>
       )}
 
